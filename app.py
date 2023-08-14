@@ -2,7 +2,7 @@
 # Required packages and libraries to run the Flask application, handle database operations, manage authentication, and deal with forms.
 import os
 from flask_migrate import Migrate
-from flask import Flask, render_template, redirect, url_for, flash, request
+from flask import Flask, render_template, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, login_required, login_user, UserMixin, logout_user, current_user
@@ -10,6 +10,10 @@ from datetime import datetime
 from flask_wtf import FlaskForm
 from wtforms import StringField, FloatField, SubmitField, PasswordField, SelectField
 from wtforms.validators import DataRequired, Length, Email, EqualTo, ValidationError
+import matplotlib.pyplot as plt # for plotting graphs
+import pandas as pd # for data manipulation
+from io import BytesIO # for saving plots as bytes
+from flask import send_file # for sending bytes to the browser
 
 # Create a new Flask web server instance
 app = Flask(__name__)
@@ -106,6 +110,35 @@ class Budget(db.Model):
 
     # Define relationship back to the User model
     user = db.relationship('User', back_populates='budget')
+
+#---------------------------------------------HELPER FUNCTIONS---------------------------------------------------------
+
+def generate_spending_chart(data):
+    plt.figure(figsize=(10, 6))
+    plt.pie(data.values(), labels=data.keys(), autopct='%1.1f%%')
+    plt.title("Spending by Category")
+    buf = BytesIO()
+    plt.savefig(buf, format="png")
+    buf.seek(0)
+    return buf
+
+def generate_spending_over_time(data):
+    # Assuming data is a sorted dict or an OrderedDict with date as key and spending as value
+    plt.figure(figsize=(12, 7))
+    plt.plot(data.keys(), data.values())
+    plt.title("Spending over Time")
+    buf = BytesIO()
+    plt.savefig(buf, format="png")
+    buf.seek(0)
+    return buf
+
+def export_to_excel(data):
+    # Convert data to DataFrame
+    df = pd.DataFrame(data)
+    buf = BytesIO()
+    df.to_excel(buf, index=False)
+    buf.seek(0)
+    return buf
 
 
 
@@ -241,7 +274,7 @@ def add_income():
         # Ensure the amount is positive
         if form.amount.data <= 0:
             flash('Please enter a positive amount for income.')
-            return render_template('income/templates/add_income.html', form=form)
+            return render_template('add_income.html', form=form)
 
         # Add the income
         income = Income(source=form.source.data, amount=form.amount.data, user_id=current_user.id)
@@ -255,7 +288,7 @@ def add_income():
             flash('Error adding income. Please try again later.', 'error')
 
         return redirect(url_for('view_incomes'))  # Redirect to the income list after adding income
-    return render_template('income/templates/add_income.html', form=form)
+    return render_template('add_income.html', form=form)
 
 
 # ROUTE FOR EDITING INCOME
@@ -272,7 +305,7 @@ def edit_income(income_id):
     if form.validate_on_submit():
         if form.amount.data <= 0:
             flash('Please enter a positive amount for income.')
-            return render_template('income/templates/edit_income.html', form=form)
+            return render_template('edit_income.html', form=form)
         income.source = form.source.data
         income.amount = form.amount.data
         try:
@@ -312,7 +345,7 @@ def view_incomes():
     return render_template('view_incomes.html', incomes=incomes)
 
 
-#------------------------------------------EXPENSE-ROUTES----------------------------------------------------------
+# ------------------------------------------EXPENSE-ROUTES----------------------------------------------------------
 
 # ROUTE FOR ADDING EXPENSE
 
@@ -397,6 +430,7 @@ def view_expenses():
     expenses = Expense.query.filter_by(user_id=current_user.id).all()
     return render_template('view_expenses.html', expenses=expenses)
 
+
 # ------------------------------------------BUDGET-ROUTES----------------------------------------------------------
 # ROUTE FOR SETTING BUDGET
 
@@ -435,6 +469,51 @@ def view_budget():
     return render_template('view_budget.html', budget=budget)
 
 
+
+# ------------------------------------------REPORTS-ROUTES----------------------------------------------------------
+
+@app.route('/reports/spending')
+@login_required
+def spending_report():
+    """Display a pie chart of spending by category."""
+    # Query the database to get spending data by category for the logged-in user.
+    expenses = Expense.query.filter_by(user_id=current_user.id).all()
+    category_data = {}  # This will store sum of expenses by category.
+    for expense in expenses:
+        if expense.source in category_data:
+            category_data[expense.source] += expense.amount
+        else:
+            category_data[expense.source] = expense.amount
+
+    chart = generate_spending_chart(category_data)  # Generate the chart using the helper function.
+    # Send the generated chart as an image to the client.
+    return send_file(chart, mimetype="image/png")
+
+@app.route('/reports/spending_over_time')
+@login_required
+def spending_over_time_report():
+    """Display a line graph of spending over time."""
+    # For demonstration, assuming you'd fetch and process data into a dictionary.
+    # In practice, you'd need to query and process data from your database.
+    data = {}
+    chart = generate_spending_over_time(data)  # Generate the chart using the helper function.
+    # Send the generated chart as an image to the client.
+    return send_file(chart, mimetype="image/png")
+
+@app.route('/reports/export')
+@login_required
+def export_report():
+    """Export user's financial data to an Excel file."""
+    # Fetch and process data for the logged-in user.
+    data = {"Date": [], "Expense Category": [], "Amount": []}
+    # Populate the data dictionary with actual data.
+    # For demonstration, it's left empty. You'd need to query and fill this from your database.
+    excel_file = export_to_excel(data)  # Export the data to Excel using the helper function.
+    # Send the Excel file to the client as a download.
+    return send_file(excel_file, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, attachment_filename="report.xlsx")
+
+
+
 # ------------------------------------------MAIN INDEX ROUTE----------------------------------------------------------
 
 
@@ -444,9 +523,7 @@ def index():
     return render_template('index.html')
 
 
-
-
-#-------------------------------------------MAIN METHOD---------------------------------------------------------------
+# -------------------------------------------MAIN METHOD---------------------------------------------------------------
 
 # Check if the script is executed as the main program and run the Flask app
 if __name__ == '__main__':
