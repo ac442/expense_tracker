@@ -21,15 +21,21 @@ app.config['SECRET_KEY'] = 'your_secret_key'  # Remember to replace this with a 
 db = SQLAlchemy(app)
 
 PREDEFINED_CATEGORIES = {
-    'income': ["Salary/Wages", "Bonuses", "Business Income", "Rental Income", "Investment Income", "Interest Income", "Royalties", "Pension", "Social Security", "Alimony/Child Support Received", "Freelance Income", "Gifts Received", "Tax Refund", "Sale of Assets", "Lottery/Gambling Winnings", "Miscellaneous Income"],
-    'expense': ["Housing", "Transportation", "Food", "Personal Care & Health", "Entertainment & Leisure", "Financial & Insurance", "Education", "Clothing & Accessories", "Kids & Family", "Pets", "Gifts/Donations", "Memberships/Subscriptions", "Professional Services", "Travel/Vacations", "Utilities & Bills", "Groceries", "Dining Out", "Personal Debt", "Investments", "Savings", "Taxes", "Miscellaneous Expenses"]
+    'income': ["Salary/Wages", "Bonuses", "Business Income", "Rental Income", "Investment Income", "Interest Income",
+               "Royalties", "Pension", "Social Security", "Alimony/Child Support Received", "Freelance Income",
+               "Gifts Received", "Tax Refund", "Sale of Assets", "Lottery/Gambling Winnings", "Miscellaneous Income"],
+    'expense': ["Housing", "Transportation", "Food", "Personal Care & Health", "Entertainment & Leisure",
+                "Financial & Insurance", "Education", "Clothing & Accessories", "Kids & Family", "Pets",
+                "Gifts/Donations", "Memberships/Subscriptions", "Professional Services", "Travel/Vacations",
+                "Utilities & Bills", "Groceries", "Dining Out", "Personal Debt", "Investments", "Savings", "Taxes",
+                "Miscellaneous Expenses"]
 }
-
 
 # Setup and initialize Flask-Login's login manager
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
 
 @login_manager.unauthorized_handler
 def unauthorized():
@@ -37,10 +43,7 @@ def unauthorized():
     return redirect(url_for('login'))
 
 
-
-
-
-#-----------------------------------DATABASE MODELS SECTION------------------------------------------------------------
+# -----------------------------------DATABASE MODELS SECTION------------------------------------------------------------
 
 # User model definition
 class User(UserMixin, db.Model):
@@ -48,10 +51,15 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    # Define relationship to the Income model
+
+    # Define a one-to-many relationship to the Income model
     incomes = db.relationship('Income', back_populates='user', lazy=True)
+
     # Define relationship to the Expense model
     expenses = db.relationship('Expense', back_populates='user', lazy=True)
+
+    # Define a one-to-one relationship to the Budget model
+    budget = db.relationship('Budget', back_populates='user', uselist=False, lazy=True)
 
     def set_password(self, password):
         # Hash and set the password for the user
@@ -88,6 +96,17 @@ class Expense(db.Model):
     user = db.relationship('User', back_populates='expenses')
 
 
+# Budget model definition
+class Budget(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True)  # unique=True ensures one-to-one
+    amount = db.Column(db.Integer, nullable=False)  # consider using db.Numeric if decimal values are needed
+
+    # Define relationship back to the User model
+    user = db.relationship('User', back_populates='budget')
+
+
+
 # ---------------------------------------------FORMS SECTION------------------------------------------------------------
 
 # User registration form definition
@@ -110,6 +129,7 @@ class RegistrationForm(FlaskForm):
         if user:
             raise ValidationError('That email is already in use. Please choose a different one or log in.')
 
+
 # User login form definition
 class LoginForm(FlaskForm):
     username = StringField('Username', validators=[DataRequired()])
@@ -119,7 +139,8 @@ class LoginForm(FlaskForm):
 
 # Form to record income
 class IncomeForm(FlaskForm):
-    source = SelectField('Source', choices=PREDEFINED_CATEGORIES['income'], validators=[DataRequired(), Length(min=2, max=100)])
+    source = SelectField('Source', choices=PREDEFINED_CATEGORIES['income'],
+                         validators=[DataRequired(), Length(min=2, max=100)])
     description = StringField('Description', validators=[Length(max=300)])  # Optional, so no DataRequired()
     amount = FloatField('Amount', validators=[DataRequired()])
     submit = SubmitField('Submit')
@@ -127,10 +148,18 @@ class IncomeForm(FlaskForm):
 
 # Form to record expenses
 class ExpenseForm(FlaskForm):
-    source = SelectField('Category', choices=PREDEFINED_CATEGORIES['expense'], validators=[DataRequired(), Length(min=2, max=100)])
+    source = SelectField('Category', choices=PREDEFINED_CATEGORIES['expense'],
+                         validators=[DataRequired(), Length(min=2, max=100)])
     description = StringField('Description', validators=[Length(max=300)])  # Optional, so no DataRequired()
     amount = FloatField('Amount', validators=[DataRequired()])
     submit = SubmitField('Submit')
+
+
+# Form to set budget
+
+class BudgetForm(FlaskForm):
+    amount = FloatField('Budget Amount', validators=[DataRequired()])
+    submit = SubmitField('Set Budget')
 
 
 # ----------------------------------------- USER AUTHENTICATION METHODS ------------------------------------------------
@@ -140,10 +169,13 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-# ---------------------------------------------ROUTES SECTION------------------------------------------------------------
+# ---------------------------------------------ROUTES SECTION----------------------------------------------------------
 # Define the application routes which determine the functionality available at each URL.
 
-# Route for user registration
+
+# -------------------------------------------USER AUTHENTICATION ROUTES-----------------------------------------------
+
+# REGISTRATION ROUTE
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     form = RegistrationForm()
@@ -167,7 +199,7 @@ def register():
     return render_template('auth/register.html', form=form)
 
 
-# Route for user login
+# LOGIN ROUTE
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     form = LoginForm()
@@ -185,7 +217,7 @@ def login():
     return render_template('auth/login.html', form=form)
 
 
-# Route for user logout
+# LOGOUT ROUTE
 @app.route('/logout')
 @login_required
 def logout():
@@ -196,7 +228,7 @@ def logout():
 
 # ------------------------------------------INCOME-ROUTES----------------------------------------------------------
 
-# Route for adding income
+# ROUTE FOR ADDING INCOME
 
 @app.route('/add_income', methods=['GET', 'POST'])
 @login_required
@@ -224,7 +256,7 @@ def add_income():
     return render_template('add_income.html', form=form)
 
 
-# route for editing / updating income
+# ROUTE FOR EDITING INCOME
 
 @app.route('/edit_income/<int:income_id>', methods=['GET', 'POST'])
 @login_required
@@ -251,7 +283,7 @@ def edit_income(income_id):
     return render_template('edit_income.html', form=form)
 
 
-# Route for deleting income
+# ROUTE FOR DELETING INCOME
 @app.route('/delete_income/<int:income_id>', methods=['POST'])
 @login_required
 def delete_income(income_id):
@@ -269,7 +301,7 @@ def delete_income(income_id):
     return redirect(url_for('view_incomes'))
 
 
-# route for viewing incomes
+# ROUTE FOR VIEWING INCOME
 
 @app.route('/view_incomes')
 @login_required
@@ -278,9 +310,9 @@ def view_incomes():
     return render_template('view_incomes.html', incomes=incomes)
 
 
-# ------------------------------------------EXPENSE-ROUTES----------------------------------------------------------
+#------------------------------------------EXPENSE-ROUTES----------------------------------------------------------
 
-# route for adding expense
+# ROUTE FOR ADDING EXPENSE
 
 @app.route('/add_expense', methods=['GET', 'POST'])
 @login_required
@@ -305,7 +337,7 @@ def add_expense():
     return render_template('add_expense.html', form=form)
 
 
-# Route for editing / updating expense
+# ROUTE FOR EDITING EXPENSE
 
 @app.route('/edit_expense/<int:expense_id>', methods=['GET', 'POST'])
 @login_required
@@ -335,7 +367,7 @@ def edit_expense(expense_id):
     return render_template('edit_expense.html', form=form)
 
 
-# Route for deleting expense
+# ROUTE FOR DELETING EXPENSE
 
 @app.route('/delete_expense/<int:expense_id>', methods=['POST'])
 @login_required
@@ -355,7 +387,7 @@ def delete_expense(expense_id):
     return redirect(url_for('view_expenses'))
 
 
-# Route for viewing expense list
+# ROUTE FOR VIEWING EXPENSES
 
 @app.route('/view_expenses')
 @login_required
@@ -363,8 +395,46 @@ def view_expenses():
     expenses = Expense.query.filter_by(user_id=current_user.id).all()
     return render_template('view_expenses.html', expenses=expenses)
 
+# ------------------------------------------BUDGET-ROUTES----------------------------------------------------------
+# ROUTE FOR SETTING BUDGET
 
-# ------------------------------------------DASH----------------------------------------------------------
+@app.route('/set_budget', methods=['GET', 'POST'])
+@login_required
+def set_budget():
+    form = BudgetForm()
+    existing_budget = Budget.query.filter_by(user_id=current_user.id).first()
+    if form.validate_on_submit():
+        if form.amount.data <= 0:
+            flash('Please enter a positive value for the budget.')
+            return render_template('set_budget.html', form=form)
+
+        if existing_budget:
+            existing_budget.amount = form.amount.data
+        else:
+            new_budget = Budget(amount=form.amount.data, user_id=current_user.id)
+            db.session.add(new_budget)
+        try:
+            db.session.commit()
+            flash('Budget set successfully!')
+        except:
+            db.session.rollback()
+            flash('Error setting budget. Please try again later.')
+        return redirect(url_for('index'))
+
+    return render_template('set_budget.html', form=form)
+
+
+# ROUTE TO VIEW CURRENT BUDGET
+
+@app.route('/view_budget')
+@login_required
+def view_budget():
+    budget = Budget.query.filter_by(user_id=current_user.id).first()
+    return render_template('view_budget.html', budget=budget)
+
+
+# ------------------------------------------MAIN INDEX ROUTE----------------------------------------------------------
+
 
 # Main dashboard route
 @app.route('/index')
@@ -372,6 +442,9 @@ def view_expenses():
 def index():
     return "Hello, this is your dashboard!"
 
+
+
+#-------------------------------------------MAIN METHOD---------------------------------------------------------------
 
 # Check if the script is executed as the main program and run the Flask app
 if __name__ == '__main__':
