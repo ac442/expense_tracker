@@ -11,7 +11,6 @@ from wtforms.validators import DataRequired, Length, Email, EqualTo, ValidationE
 # Create a new Flask web server instance
 app = Flask(__name__)
 
-
 # Configure database settings for the Flask application
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///your_database.db'
 app.config['SECRET_KEY'] = 'your_secret_key'  # Remember to replace this with a real secret key!
@@ -24,7 +23,8 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-#--------------------------------------------models-----------------------------------------------------------
+
+# --------------------------------------------MODELS-----------------------------------------------------------
 
 # User model definition
 class User(UserMixin, db.Model):
@@ -45,6 +45,7 @@ class User(UserMixin, db.Model):
         # Check the password against its hash
         return check_password_hash(self.password_hash, password)
 
+
 # Income model definition
 class Income(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -55,19 +56,20 @@ class Income(db.Model):
     # Define relationship to the User model
     user = db.relationship('User', back_populates='incomes')
 
+
 # Expense model definition
 class Expense(db.Model):
-    class Expense(db.Model):
-        id = db.Column(db.Integer, primary_key=True)
-        user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-        category = db.Column(db.String(80), nullable=False)
-        amount = db.Column(db.Integer, nullable=False)
-        date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-        description = db.Column(db.String(200))
-        # Define relationship to the User model
-        user = db.relationship('User', back_populates='expenses')
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    category = db.Column(db.String(80), nullable=False)
+    amount = db.Column(db.Integer, nullable=False)
+    date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    description = db.Column(db.String(200))
+    # Define relationship to the User model
+    user = db.relationship('User', back_populates='expenses')
 
- #---------------------------------------------forms------------------------------------------------------------
+
+# ---------------------------------------------FORMS------------------------------------------------------------
 
 # Form definition for user registration
 class RegistrationForm(FlaskForm):
@@ -97,20 +99,23 @@ class IncomeForm(FlaskForm):
     amount = FloatField('Amount', validators=[DataRequired()])
     submit = SubmitField('Submit')
 
+
 # Form definition for recording expenses
 class ExpenseForm(FlaskForm):
-    source = StringField('Source/Category', validators=[DataRequired(), Length(min=2, max=100)])
+    category = StringField('Category', validators=[DataRequired(), Length(min=2, max=100)])
     description = StringField('Description', validators=[Length(max=300)])  # Optional, so no DataRequired()
     amount = FloatField('Amount', validators=[DataRequired()])
     submit = SubmitField('Submit')
 
-#----------------------------------------------login-----------------------------------------------------------
+
+# ----------------------------------------------Login-----------------------------------------------------------
 # Define how Flask-Login retrieves a specific user object
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-#---------------------------------------------routes------------------------------------------------------------
+
+# ---------------------------------------------USER-ROUTES-------------------------------------------------------
 
 # Route for user registration
 @app.route('/register', methods=['GET', 'POST'])
@@ -123,25 +128,35 @@ def register():
 
         user = User(username=username, email=email)
         user.set_password(password)
-        db.session.add(user)
-        db.session.commit()
-        login_user(user)
-        flash('Thanks for registering!')
-        return redirect(url_for('index'))  # Redirect to the main page or dashboard after registration
+
+        try:
+            db.session.add(user)
+            db.session.commit()
+            login_user(user)
+            flash('Thanks for registering!')
+            return redirect(url_for('index'))
+        except:
+            db.session.rollback()
+            flash('Error! Unable to register at the moment.')
     return render_template('auth/register.html', form=form)
 
-# Route for user login
+
+# Route for user login with error handling
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        user = User.query.filter_by(username=username).first()
-        if user and user.check_password(password):
-            login_user(user)
-            return redirect(url_for('index'))  # Redirect to the main page or dashboard after login
-        flash('Invalid username or password')
+    try:
+        if request.method == 'POST':
+            username = request.form.get('username')
+            password = request.form.get('password')
+            user = User.query.filter_by(username=username).first()
+            if user and user.check_password(password):
+                login_user(user)
+                return redirect(url_for('index'))
+            flash('Invalid username or password')
+    except Exception as e:
+        flash('Error during login. Please try again.')
     return render_template('auth/login.html')
+
 
 # Route for user logout
 @app.route('/logout')
@@ -150,6 +165,9 @@ def logout():
     logout_user()
     flash('You have been logged out.')
     return redirect(url_for('login'))
+
+
+# ------------------------------------------INCOME-ROUTES----------------------------------------------------------
 
 # Route for adding income
 
@@ -164,47 +182,44 @@ def add_income():
             flash('Please enter a positive amount for income.')
             return render_template('add_income.html', form=form)
 
-        # Check for duplicate income source for the user
-        existing_income = Income.query.filter_by(user_id=current_user.id, source=form.source.data).first()
-        if existing_income:
-            flash('You have already added this income source. Consider editing the existing entry.')
-            return render_template('add_income.html', form=form)
-
         # Add the income
         income = Income(source=form.source.data, amount=form.amount.data, user_id=current_user.id)
-        db.session.add(income)
-        db.session.commit()
 
-        flash('Income added successfully!')
+        try:
+            db.session.add(income)
+            db.session.commit()
+            flash('Income added successfully!')
+        except Exception as e:
+            db.session.rollback()
+            flash('Error adding income. Please try again later.', 'error')
+
         return redirect(url_for('view_incomes'))  # Redirect to the income list after adding income
     return render_template('add_income.html', form=form)
 
-#route for editing / updating income
+
+# route for editing / updating income
 
 @app.route('/edit_income/<int:income_id>', methods=['GET', 'POST'])
 @login_required
 def edit_income(income_id):
     income = Income.query.get_or_404(income_id)
-
-    # Ensure the logged-in user is the owner of the income entry
     if income.user_id != current_user.id:
         flash('You do not have permission to edit this entry.')
         return redirect(url_for('view_incomes'))
 
-    form = IncomeForm(obj=income)  # Pre-fill the form with the current income details
+    form = IncomeForm(obj=income)
     if form.validate_on_submit():
-
-        # Ensure the amount is positive
         if form.amount.data <= 0:
             flash('Please enter a positive amount for income.')
             return render_template('edit_income.html', form=form)
-
-        # Update the income details
         income.source = form.source.data
         income.amount = form.amount.data
-        db.session.commit()
-
-        flash('Income updated successfully!')
+        try:
+            db.session.commit()
+            flash('Income updated successfully!')
+        except Exception as e:
+            db.session.rollback()
+            flash('Error updating income. Please try again later.')
         return redirect(url_for('view_incomes'))
     return render_template('edit_income.html', form=form)
 
@@ -214,18 +229,20 @@ def edit_income(income_id):
 @login_required
 def delete_income(income_id):
     income = Income.query.get_or_404(income_id)
-
-    # Ensure the logged-in user is the owner of the income entry
     if income.user_id != current_user.id:
         flash('You do not have permission to delete this entry.')
         return redirect(url_for('view_incomes'))
-
-    db.session.delete(income)
-    db.session.commit()
-    flash('Income entry deleted successfully!')
+    try:
+        db.session.delete(income)
+        db.session.commit()
+        flash('Income entry deleted successfully!')
+    except Exception as e:
+        db.session.rollback()
+        flash('Error deleting income. Please try again later.')
     return redirect(url_for('view_incomes'))
 
-# Route for viewing income list
+
+# route for viewing incomes
 
 @app.route('/view_incomes')
 @login_required
@@ -234,13 +251,100 @@ def view_incomes():
     return render_template('view_incomes.html', incomes=incomes)
 
 
+# ------------------------------------------EXPENSE-ROUTES----------------------------------------------------------
 
+# route for adding expense
+
+@app.route('/add_expense', methods=['GET', 'POST'])
+@login_required
+def add_expense():
+    form = ExpenseForm()
+    if form.validate_on_submit():
+        if form.amount.data <= 0:
+            flash('Please enter a positive amount for the expense.')
+            return render_template('add_expense.html', form=form)
+
+        expense = Expense(category=form.category.data, amount=form.amount.data, description=form.description.data,
+                          user_id=current_user.id)
+        try:
+            db.session.add(expense)
+            db.session.commit()
+            flash('Expense added successfully!')
+        except:
+            db.session.rollback()
+            flash('Error adding expense. Please try again later.')
+        return redirect(url_for('view_expenses'))
+
+    return render_template('add_expense.html', form=form)
+
+
+# Route for editing / updating expense
+
+@app.route('/edit_expense/<int:expense_id>', methods=['GET', 'POST'])
+@login_required
+def edit_expense(expense_id):
+    expense = Expense.query.get_or_404(expense_id)
+    if expense.user_id != current_user.id:
+        flash('You do not have permission to edit this entry.')
+        return redirect(url_for('view_expenses'))
+
+    form = ExpenseForm(obj=expense)
+    if form.validate_on_submit():
+        if form.amount.data <= 0:
+            flash('Please enter a positive amount for the expense.')
+            return render_template('edit_expense.html', form=form)
+
+        expense.category = form.category.data
+        expense.amount = form.amount.data
+        expense.description = form.description.data
+        try:
+            db.session.commit()
+            flash('Expense updated successfully!')
+        except:
+            db.session.rollback()
+            flash('Error updating expense. Please try again later.')
+        return redirect(url_for('view_expenses'))
+
+    return render_template('edit_expense.html', form=form)
+
+
+# Route for deleting expense
+
+@app.route('/delete_expense/<int:expense_id>', methods=['POST'])
+@login_required
+def delete_expense(expense_id):
+    expense = Expense.query.get_or_404(expense_id)
+    if expense.user_id != current_user.id:
+        flash('You do not have permission to delete this entry.')
+        return redirect(url_for('view_expenses'))
+
+    try:
+        db.session.delete(expense)
+        db.session.commit()
+        flash('Expense entry deleted successfully!')
+    except:
+        db.session.rollback()
+        flash('Error deleting expense. Please try again later.')
+    return redirect(url_for('view_expenses'))
+
+
+# Route for viewing expense list
+
+@app.route('/view_expenses')
+@login_required
+def view_expenses():
+    expenses = Expense.query.filter_by(user_id=current_user.id).all()
+    return render_template('view_expenses.html', expenses=expenses)
+
+
+# ------------------------------------------DASH----------------------------------------------------------
 
 # Main dashboard route
 @app.route('/index')
 @login_required
 def index():
     return "Hello, this is your dashboard!"
+
 
 # Check if the script is executed as the main program and run the Flask app
 if __name__ == '__main__':
