@@ -1,6 +1,7 @@
 # ----- IMPORTS SECTION -----
 # Required packages and libraries to run the Flask application, handle database operations, manage authentication, and deal with forms.
 import os
+from flask_migrate import Migrate
 from flask import Flask, render_template, redirect, url_for, flash, request
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -19,6 +20,7 @@ app.config['SECRET_KEY'] = 'your_secret_key'  # Remember to replace this with a 
 
 # Create a new SQLAlchemy database instance
 db = SQLAlchemy(app)
+migrate = Migrate(app, db)
 
 PREDEFINED_CATEGORIES = {
     'income': ["Salary/Wages", "Bonuses", "Business Income", "Rental Income", "Investment Income", "Interest Income",
@@ -239,7 +241,7 @@ def add_income():
         # Ensure the amount is positive
         if form.amount.data <= 0:
             flash('Please enter a positive amount for income.')
-            return render_template('add_income.html', form=form)
+            return render_template('income/templates/add_income.html', form=form)
 
         # Add the income
         income = Income(source=form.source.data, amount=form.amount.data, user_id=current_user.id)
@@ -253,7 +255,7 @@ def add_income():
             flash('Error adding income. Please try again later.', 'error')
 
         return redirect(url_for('view_incomes'))  # Redirect to the income list after adding income
-    return render_template('add_income.html', form=form)
+    return render_template('income/templates/add_income.html', form=form)
 
 
 # ROUTE FOR EDITING INCOME
@@ -270,7 +272,7 @@ def edit_income(income_id):
     if form.validate_on_submit():
         if form.amount.data <= 0:
             flash('Please enter a positive amount for income.')
-            return render_template('edit_income.html', form=form)
+            return render_template('income/templates/edit_income.html', form=form)
         income.source = form.source.data
         income.amount = form.amount.data
         try:
@@ -437,10 +439,10 @@ def view_budget():
 
 
 # Main dashboard route
-@app.route('/index')
-@login_required
+@app.route('/index', methods=['GET'])
 def index():
-    return "Hello, this is your dashboard!"
+    return render_template('index.html')
+
 
 
 

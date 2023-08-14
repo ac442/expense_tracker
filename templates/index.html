@@ -1,0 +1,24 @@
+<!-- templates/index.html -->
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Welcome to My Finance App</h2>
+<p>
+    Keep track of your incomes and expenses easily.
+</p>
+
+{% if not current_user.is_authenticated %}
+<div>
+    <a href="{{ url_for('login') }}">Login</a>
+    <a href="{{ url_for('register') }}">Register</a>
+</div>
+{% else %}
+<div>
+    <a href="{{ url_for('add_income') }}">Add Income</a>
+    <a href="{{ url_for('view_incomes') }}">View Incomes</a>
+    <a href="{{ url_for('add_expense') }}">Add Expense</a>
+    <a href="{{ url_for('view_expenses') }}">View Expenses</a>
+</div>
+{% endif %}
+
+{% endblock %}

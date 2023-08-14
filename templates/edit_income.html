@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Edit Income</title>
+</head>
+<body>
+    <h2>Edit Income</h2>
+
+    <form action="{{ url_for('edit_income', income_id=income.id) }}" method="post">
+        {{ form.hidden_tag() }}
+
+        <div>
+            <label for="source">Source:</label>
+            {{ form.source(id="source") }}
+            {% if form.source.errors %}
+                <ul class="errors">
+                    {% for error in form.source.errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+
+        <div>
+            <label for="amount">Amount:</label>
+            {{ form.amount(id="amount") }}
+            {% if form.amount.errors %}
+                <ul class="errors">
+                    {% for error in form.amount.errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+
+        <div>
+            <input type="submit" value="Update Income">
+        </div>
+
+    </form>
+
+    <a href="{{ url_for('view_incomes') }}">Back to Incomes List</a>
+
+</body>
+</html>
