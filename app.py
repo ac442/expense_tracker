@@ -1,11 +1,13 @@
-# Import necessary modules and libraries
+# ----- IMPORTS SECTION -----
+# Required packages and libraries to run the Flask application, handle database operations, manage authentication, and deal with forms.
+import os
 from flask import Flask, render_template, redirect, url_for, flash, request
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, login_required, login_user, UserMixin, logout_user, current_user
 from datetime import datetime
 from flask_wtf import FlaskForm
-from wtforms import StringField, FloatField, SubmitField, PasswordField
+from wtforms import StringField, FloatField, SubmitField, PasswordField, SelectField
 from wtforms.validators import DataRequired, Length, Email, EqualTo, ValidationError
 
 # Create a new Flask web server instance
@@ -18,13 +20,27 @@ app.config['SECRET_KEY'] = 'your_secret_key'  # Remember to replace this with a 
 # Create a new SQLAlchemy database instance
 db = SQLAlchemy(app)
 
+PREDEFINED_CATEGORIES = {
+    'income': ["Salary/Wages", "Bonuses", "Business Income", "Rental Income", "Investment Income", "Interest Income", "Royalties", "Pension", "Social Security", "Alimony/Child Support Received", "Freelance Income", "Gifts Received", "Tax Refund", "Sale of Assets", "Lottery/Gambling Winnings", "Miscellaneous Income"],
+    'expense': ["Housing", "Transportation", "Food", "Personal Care & Health", "Entertainment & Leisure", "Financial & Insurance", "Education", "Clothing & Accessories", "Kids & Family", "Pets", "Gifts/Donations", "Memberships/Subscriptions", "Professional Services", "Travel/Vacations", "Utilities & Bills", "Groceries", "Dining Out", "Personal Debt", "Investments", "Savings", "Taxes", "Miscellaneous Expenses"]
+}
+
+
 # Setup and initialize Flask-Login's login manager
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+@login_manager.unauthorized_handler
+def unauthorized():
+    flash('You need to login first.')
+    return redirect(url_for('login'))
 
-# --------------------------------------------MODELS-----------------------------------------------------------
+
+
+
+
+#-----------------------------------DATABASE MODELS SECTION------------------------------------------------------------
 
 # User model definition
 class User(UserMixin, db.Model):
@@ -53,6 +69,8 @@ class Income(db.Model):
     source = db.Column(db.String(80), nullable=False)
     amount = db.Column(db.Integer, nullable=False)
     date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    description = db.Column(db.String(200))
+
     # Define relationship to the User model
     user = db.relationship('User', back_populates='incomes')
 
@@ -61,17 +79,18 @@ class Income(db.Model):
 class Expense(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    category = db.Column(db.String(80), nullable=False)
+    source = db.Column(db.String(80), nullable=False)
     amount = db.Column(db.Integer, nullable=False)
     date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     description = db.Column(db.String(200))
+
     # Define relationship to the User model
     user = db.relationship('User', back_populates='expenses')
 
 
-# ---------------------------------------------FORMS------------------------------------------------------------
+# ---------------------------------------------FORMS SECTION------------------------------------------------------------
 
-# Form definition for user registration
+# User registration form definition
 class RegistrationForm(FlaskForm):
     username = StringField('Username', validators=[DataRequired(), Length(min=2, max=20)])
     email = StringField('Email', validators=[DataRequired(), Email()])
@@ -91,31 +110,38 @@ class RegistrationForm(FlaskForm):
         if user:
             raise ValidationError('That email is already in use. Please choose a different one or log in.')
 
+# User login form definition
+class LoginForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired()])
+    password = PasswordField('Password', validators=[DataRequired()])
+    submit = SubmitField('Login')
 
-# Form definition for recording income
+
+# Form to record income
 class IncomeForm(FlaskForm):
-    source = StringField('Source', validators=[DataRequired(), Length(min=2, max=100)])
+    source = SelectField('Source', choices=PREDEFINED_CATEGORIES['income'], validators=[DataRequired(), Length(min=2, max=100)])
     description = StringField('Description', validators=[Length(max=300)])  # Optional, so no DataRequired()
     amount = FloatField('Amount', validators=[DataRequired()])
     submit = SubmitField('Submit')
 
 
-# Form definition for recording expenses
+# Form to record expenses
 class ExpenseForm(FlaskForm):
-    category = StringField('Category', validators=[DataRequired(), Length(min=2, max=100)])
+    source = SelectField('Category', choices=PREDEFINED_CATEGORIES['expense'], validators=[DataRequired(), Length(min=2, max=100)])
     description = StringField('Description', validators=[Length(max=300)])  # Optional, so no DataRequired()
     amount = FloatField('Amount', validators=[DataRequired()])
     submit = SubmitField('Submit')
 
 
-# ----------------------------------------------Login-----------------------------------------------------------
+# ----------------------------------------- USER AUTHENTICATION METHODS ------------------------------------------------
 # Define how Flask-Login retrieves a specific user object
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-# ---------------------------------------------USER-ROUTES-------------------------------------------------------
+# ---------------------------------------------ROUTES SECTION------------------------------------------------------------
+# Define the application routes which determine the functionality available at each URL.
 
 # Route for user registration
 @app.route('/register', methods=['GET', 'POST'])
@@ -141,13 +167,14 @@ def register():
     return render_template('auth/register.html', form=form)
 
 
-# Route for user login with error handling
+# Route for user login
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    form = LoginForm()
     try:
-        if request.method == 'POST':
-            username = request.form.get('username')
-            password = request.form.get('password')
+        if form.validate_on_submit():
+            username = form.username.data
+            password = form.password.data
             user = User.query.filter_by(username=username).first()
             if user and user.check_password(password):
                 login_user(user)
@@ -155,7 +182,7 @@ def login():
             flash('Invalid username or password')
     except Exception as e:
         flash('Error during login. Please try again.')
-    return render_template('auth/login.html')
+    return render_template('auth/login.html', form=form)
 
 
 # Route for user logout
@@ -264,7 +291,7 @@ def add_expense():
             flash('Please enter a positive amount for the expense.')
             return render_template('add_expense.html', form=form)
 
-        expense = Expense(category=form.category.data, amount=form.amount.data, description=form.description.data,
+        expense = Expense(source=form.source.data, amount=form.amount.data, description=form.description.data,
                           user_id=current_user.id)
         try:
             db.session.add(expense)
@@ -294,7 +321,7 @@ def edit_expense(expense_id):
             flash('Please enter a positive amount for the expense.')
             return render_template('edit_expense.html', form=form)
 
-        expense.category = form.category.data
+        expense.source = form.source.data
         expense.amount = form.amount.data
         expense.description = form.description.data
         try:
@@ -350,4 +377,8 @@ def index():
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    app.run()
+
+    if os.environ.get('FLASK_ENV') == 'development':
+        app.run(debug=True)
+    else:
+        app.run()
