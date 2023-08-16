@@ -1,0 +1,27 @@
+<!-- templates/edit_expenses.html -->
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Edit Expense</h2>
+
+<form action="{{ url_for('edit_expense', expense_id=expense.id) }}" method="post">
+    <!-- Include the CSRF token -->
+    {{ form.hidden_tag() }}
+
+    <label for="source">Category:</label>
+    {{ form.source.label }} {{ form.source() }}<br><br>
+
+    <label for="description">Description:</label>
+    {{ form.description.label }} {{ form.description() }}<br><br>
+
+    <label for="amount">Amount:</label>
+    {{ form.amount.label }} {{ form.amount() }}<br><br>
+
+    <input type="submit" value="Update Expense">
+</form>
+
+<!-- Add this link to navigate back to the previous page or any other page you find appropriate -->
+<br>
+<a href="{{ url_for('index') }}">Back to Home</a>
+
+{% endblock %}

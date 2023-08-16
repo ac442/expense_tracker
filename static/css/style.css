@@ -1,25 +1,46 @@
-/* static/css/style.css */
+/* Reset default browser styles */
+body, h1, h2, p {
+  margin: 0;
+  padding: 0;
+}
+
+/* Set background color to black */
 body {
-    font-family: Arial, sans-serif;
-    padding: 20px;
+  background-color: black;
+  color: white;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
 }
 
-header {
-    background-color: #333;
-    color: white;
-    padding: 10px 0;
-    text-align: center;
+/* Style headers */
+h1, h2 {
+  color: #00ff00; /* Green color for headers */
 }
 
-header a {
-    color: white;
-    margin: 0 10px;
-    text-decoration: none;
+/* Style links */
+a {
+  color: #3498db; /* Blue color for links */
+  text-decoration: none;
 }
 
-.flash-messages {
-    background-color: #f9c4c4;
-    border: 1px solid red;
-    padding: 10px;
-    margin-bottom: 20px;
+/* Style links on hover */
+a:hover {
+  text-decoration: underline;
+}
+
+/* Style paragraphs */
+p {
+  margin-bottom: 15px;
+}
+
+/* Style code blocks */
+pre {
+  background-color: #111111;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid #333333;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
 }

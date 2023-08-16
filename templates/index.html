@@ -1,24 +1,57 @@
-<!-- templates/index.html -->
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your App Name</title>
+    <style>
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: #000000;
+            color: #00FF00;
+            margin: 0;
+            padding: 20px;
+        }
 
-{% block content %}
-<h2>Welcome to My Finance App</h2>
-<p>
-    Keep track of your incomes and expenses easily.
-</p>
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            background-color: #000000;
+            padding: 20px;
+        }
 
-{% if not current_user.is_authenticated %}
-<div>
-    <a href="{{ url_for('login') }}">Login</a>
-    <a href="{{ url_for('register') }}">Register</a>
+        h1 {
+            font-size: 28px;
+            border-bottom: 1px solid #00FF00;
+        }
+
+        a {
+            color: #00FF00;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .command {
+            display: block;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Welcome to Budget Buddy!</h1>
+    <p>[Command Line Interface]</p>
+
+    <p class="command">[1] <a href="{{ url_for('add_expense') }}">Add Expense</a></p>
+    <p class="command">[2] <a href="{{ url_for('view_expenses') }}">View Expenses</a></p>
+    <p class="command">[3] <a href="{{ url_for('set_budget') }}">Set Budget</a></p>
+    <p class="command">[4] <a href="{{ url_for('view_budget') }}">View Budget</a></p>
+    <p class="command">[5] <a href="{{ url_for('logout') }}">Logout</a></p>
 </div>
-{% else %}
-<div>
-    <a href="{{ url_for('add_income') }}">Add Income</a>
-    <a href="{{ url_for('view_incomes') }}">View Incomes</a>
-    <a href="{{ url_for('add_expense') }}">Add Expense</a>
-    <a href="{{ url_for('view_expenses') }}">View Expenses</a>
-</div>
-{% endif %}
 
-{% endblock %}
+</body>
+</html>

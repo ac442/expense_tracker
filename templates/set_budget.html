@@ -2,9 +2,24 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Set Budget</title>
 </head>
 <body>
+    <h2>Set Your Budget</h2>
+    <form action="/set_budget" method="post">
+        <!-- Include the CSRF token -->
+        {{ form.hidden_tag() }}
 
+        <label for="amount">Budget Amount:</label>
+        <!-- Use Flask-WTF's form.field to render the field, which will also handle errors -->
+        {{ form.amount.label }} {{ form.amount() }}
+        <br><br>
+        <input type="submit" value="Set Budget">
+    </form>
+
+    <!-- Add this link to navigate back to the index page -->
+    <br>
+    <a href="{{ url_for('index') }}">Back to Home</a>
 </body>
 </html>

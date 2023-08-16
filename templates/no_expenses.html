@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>No Expenses Found</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">  <!-- Assuming you have a styles.css in a static folder -->
+</head>
+<body>
+    <div class="container">
+        <h1>No Expenses Found</h1>
+        <p>It seems you haven't recorded any expenses yet. Start by adding some to see your spending report.</p>
+        <a href="{{ url_for('add_expense') }}">Add Expense</a> <!-- Assuming you have a route named 'add_expense' where users can add expenses -->
+    </div>
+</body>
+</html>

@@ -13,9 +13,12 @@
     <h1>Budget Buddy :)</h1>
     {% if current_user.is_authenticated %}
         <a href="{{ url_for('logout') }}">Logout</a>
+        <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        <
     {% else %}
         <a href="{{ url_for('login') }}">Login</a>
         <a href="{{ url_for('register') }}">Register</a>
+        <a href="{{ url_for('forgot_password') }}">Forgot Password</a>
     {% endif %}
 </header>
 

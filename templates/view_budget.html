@@ -1,10 +1,15 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Title</title>
-</head>
-<body>
+<!-- templates/view_budget.html -->
+{% extends "base.html" %}
 
-</body>
-</html>
+{% block content %}
+<h2>Your Budget</h2>
+
+{% if budget %}
+<p>Your current budget is: ${{ budget.amount }}</p> <!-- Display the budget amount here -->
+{% else %}
+<p>You have not set a budget yet.</p>
+{% endif %}
+
+<a href="{{ url_for('index') }}">Back to Home</a>
+
+{% endblock %}

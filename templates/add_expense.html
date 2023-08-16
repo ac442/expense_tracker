@@ -1,41 +1,40 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Add Expense</title>
-</head>
-<body>
+<!-- templates/add_expense.html -->
 
-<h2>Add Expense</h2>
+{% extends "base.html" %}
 
-<form method="post">
+{% block content %}
+<h2>Add an Expense</h2>
+
+<form action="{{ url_for('add_expense') }}" method="post">
+    <!-- Include the CSRF token -->
     {{ form.hidden_tag() }}
 
-    <div>
-        <label>Item or Service:</label><br>
-        {{ form.item(size=32) }}<br>
-        {% if form.item.errors %}
-            <ul class="errors">
-                {% for error in form.item.errors %}
-                    <li>{{ error }}</li>
-                {% endfor %}
-            </ul>
-        {% endif %}
+    <!-- Render the 'source' field -->
+    <div class="form-group">
+        {{ form.source.label }}<br>
+        {{ form.source() }}
     </div>
 
-    <div>
-        <label>Amount:</label><br>
-        {{ form.amount(size=32) }}<br>
-        {% if form.amount.errors %}
-            <ul class="errors">
-                {% for error in form.amount.errors %}
-                    <li>{{ error }}</li>
-                {% endfor %}
-            </ul>
-        {% endif %}
+    <!-- Render the 'description' field -->
+    <div class="form-group">
+        {{ form.description.label }}<br>
+        {{ form.description() }}
     </div>
 
-    <input type="submit" value="Add Expense">
+    <!-- Render the 'amount' field -->
+    <div class="form-group">
+        {{ form.amount.label }}<br>
+        {{ form.amount() }}
+    </div>
+
+    <!-- Render the submit button -->
+    <div class="form-group">
+        {{ form.submit() }}
+    </div>
 </form>
 
-</body>
-</html>
+<!-- Add a link to navigate back to the index page -->
+<br>
+<a href="{{ url_for('index') }}">Back to Home</a>
+
+{% endblock %}
