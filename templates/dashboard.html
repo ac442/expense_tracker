@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h1>Welcome to Budget Buddy!</h1>
+
+    <h2>Actions</h2>
+    <p class="command"><a href="{{ url_for('add_expense') }}">Add Expense</a></p>
+    <p class="command"><a href="{{ url_for('view_expenses') }}">View Expenses</a></p>
+    <p class="command"><a href="{{ url_for('set_budget') }}">Set Budget</a></p>
+    <p class="command"><a href="{{ url_for('view_budget') }}">View Budget</a></p>
+    <p class="command"><a href="{{ url_for('logout') }}">Logout</a></p>
+
+    <h2>Analytics and Reports</h2>
+    <p class="command"><a href="{{ url_for('view_spending_trends') }}">View Spending Trends</a></p>
+    <p class="command"><a href="{{ url_for('view_spending_anomalies') }}">View Spending Anomalies</a></p>
+    <p class="command"><a href="{{ url_for('generate_spending_chart') }}">Visualize Spending by Category</a></p>
+    <p class="command"><a href="{{ url_for('generate_spending_over_time') }}">Visualize Spending Over Time</a></p>
+    <p class="command"><a href="{{ url_for('export_expenses') }}">Export Expenses to Excel</a></p>
+
+    <h2>Notifications and Alerts</h2>
+    <p class="command"><a href="{{ url_for('check_alerts') }}">Check for Alerts and Notifications</a></p>
+    <p class="command"><a href="{{ url_for('view_notifications') }}">View Notifications</a></p>
+
+</div>
+{% endblock %}

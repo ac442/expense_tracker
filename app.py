@@ -8,6 +8,7 @@ from flask_login import LoginManager, UserMixin, current_user, login_required, l
 from flask_mail import Mail, Message
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import or_
 from flask_wtf import FlaskForm
 from flask_wtf.csrf import CSRFProtect
 import matplotlib.dates as mdates
@@ -15,11 +16,6 @@ import matplotlib.pyplot as plt
 import numpy as np  # for linear regression
 import os
 import pandas as pd
-from prophet import Prophet
-import random
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from sklearn.model_selection import train_test_split
 import traceback
 from werkzeug.security import check_password_hash, generate_password_hash
 from wtforms import FloatField, PasswordField, SelectField, StringField, SubmitField
@@ -59,7 +55,7 @@ mail.init_app(app)
 
 # Create a new SQLAlchemy database instance
 
-#migrate = Migrate(app, db)
+migrate = Migrate(app, db)
 
 
 
@@ -125,13 +121,11 @@ class Expense(db.Model):
     user = db.relationship('User', back_populates='expenses')
 
 
-# Budget model definition
 class Budget(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True)  # unique=True ensures one-to-one
-    amount = db.Column(db.Integer, nullable=False)  # consider using db.Numeric if decimal values are needed
-
-    # Define relationship back to the User model
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True)
+    category = db.Column(db.String(80), nullable=False)  # New field for category
+    amount = db.Column(db.Integer, nullable=False)
     user = db.relationship('User', back_populates='budget')
 
 
@@ -152,77 +146,64 @@ def initdb_command():
     db.create_all()
     print("Database initialized.")
 
+#---------------------------------------------FORMS SECTION------------------------------------------------------------
+# User registration form definition
+class RegistrationForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired(), Length(min=2, max=20)])
+    email = StringField('Email', validators=[DataRequired(), Email()])
+    password = PasswordField('Password', validators=[DataRequired()])
+    confirm_password = PasswordField('Confirm Password', validators=[DataRequired(), EqualTo('password')])
+    submit = SubmitField('Sign Up')
 
-# -----------------------------------------DATA GENERATION ROUTE -------------------------------------------------------------
-@app.route('/generate_fake_data')
-def generate_fake_data():
-    num_entries = 1000  # For example, create 1000 fake entries. Adjust this number as needed.
+    # Validate username uniqueness
+    def validate_username(self, username):
+        user = User.query.filter_by(username=username.data).first()
+        if user:
+            raise ValidationError('That username is already taken. Please choose a different one.')
 
-    fake = Faker()
-
-    # Get all user IDs
-    user_ids = [user.id for user in User.query.all()]
-
-    if not user_ids:
-        return "No users in the database. Please add a user first."
-
-    try:
-        # Randomly generate fake data for each entry
-        for _ in range(num_entries):
-            source = random.choice(PREDEFINED_CATEGORIES['expense'])
-            amount = round(random.uniform(1, 2000), 2)  # Assuming expenses range from $1 to $2000
-            date = fake.date_this_decade()  # Random date within this decade
-            description = fake.sentence(nb_words=5)  # A 5-word description
-
-            # Get a random user ID
-            random_user_id = random.choice(user_ids)
-
-            # Create a new Expense object with the fake data.
-            expense = Expense(source=source, amount=amount, date=date, description=description, user_id=random_user_id)
-
-            # Add the expense entry to the database.
-            db.session.add(expense)
-
-        # Commit all the fake entries to the database
-        db.session.commit()
-
-    except Exception as e:
-        # Rollback in case of any errors
-        db.session.rollback()
-
-        # Log the error for debugging
-        print("An error occurred:", str(e))
-        traceback.print_exc()
-
-        return "An error occurred while generating fake data."
-
-    return "Fake data generated!"
+    # Validate email uniqueness
+    def validate_email(self, email):
+        user = User.query.filter_by(email=email.data).first()
+        if user:
+            raise ValidationError('That email is already in use. Please choose a different one or log in.')
 
 
-# ----------------------------------------HELPER FUNCTIONS FOR REPORTS AND ANALYTICS----------------------------------
+# User login form definition
+class LoginForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired()])
+    password = PasswordField('Password', validators=[DataRequired()])
+    submit = SubmitField('Login')
+
+
+# Form to record expenses
+class ExpenseForm(FlaskForm):
+    source = SelectField('Category', choices=PREDEFINED_CATEGORIES['expense'],
+                         validators=[DataRequired(), Length(min=2, max=100)])
+    description = StringField('Description', validators=[Length(max=300)])  # Optional, so no DataRequired()
+    amount = FloatField('Amount', validators=[DataRequired()])
+    submit = SubmitField('Submit')
+
+
+# Form to set budget
+
+class BudgetForm(FlaskForm):
+    category = SelectField('Category', choices=PREDEFINED_CATEGORIES['expense'], validators=[DataRequired()])
+    amount = FloatField('Budget Amount', validators=[DataRequired()])
+    submit = SubmitField('Set Budget')
+
+
+# ============================================BASIC UTILITY FUNCTIONS===================================================
 ####
-def weekly_expense(dataframe, user_id=None):
-    dataframe['date'] = pd.to_datetime(dataframe['date'])
+def get_monthly_expenses(user_id):
+    current_month = datetime.utcnow().month
+    current_year = datetime.utcnow().year
 
-    # Filter the dataframe for the specific user if user_id is provided
-    if user_id:
-        dataframe = dataframe[dataframe['user_id'] == user_id]
+    monthly_expenses = Expense.query.filter_by(user_id=user_id).filter(
+        db.extract('month', Expense.date) == current_month,
+        db.extract('year', Expense.date) == current_year
+    ).all()
 
-    weekly_exp = dataframe.resample('W-Mon', on='date').sum()
-    return weekly_exp
-
-def monthly_expense(dataframe, user_id=None):
-    dataframe['date'] = pd.to_datetime(dataframe['date'])
-
-    # Filter the dataframe for the specific user if user_id is provided
-    if user_id:
-        dataframe = dataframe[dataframe['user_id'] == user_id]
-
-    monthly_exp = dataframe.resample('M', on='date').sum()
-    return monthly_exp
-
-
-
+    return sum(expense.amount for expense in monthly_expenses)
 
 
 def collect_expense_data(expenses):
@@ -253,6 +234,79 @@ def collect_expense_data(expenses):
     # Return the dictionary with summed expenses by category.
     return category_data
 
+#==================================================DATA PROCESSING AND ANALYALYSIS FUNCTIONS===============================================
+
+def get_spending_trends(user_id):
+    """Get spending trends for the current month compared to the previous month."""
+    current_month = datetime.utcnow().month
+    current_year = datetime.utcnow().year
+
+    # Calculate the previous month and year
+    if current_month == 1:
+        previous_month = 12
+        previous_year = current_year - 1
+    else:
+        previous_month = current_month - 1
+        previous_year = current_year
+
+    # Fetch expenses for the current and previous month
+    current_month_expenses = Expense.query.filter_by(user_id=user_id).filter(
+        db.extract('month', Expense.date) == current_month,
+        db.extract('year', Expense.date) == current_year
+    ).all()
+
+    previous_month_expenses = Expense.query.filter_by(user_id=user_id).filter(
+        db.extract('month', Expense.date) == previous_month,
+        db.extract('year', Expense.date) == previous_year
+    ).all()
+
+    trends = {}
+    for category in PREDEFINED_CATEGORIES['expense']:
+        current_spending = sum(exp.amount for exp in current_month_expenses if exp.source == category)
+        previous_spending = sum(exp.amount for exp in previous_month_expenses if exp.source == category)
+
+        if previous_spending != 0:
+            percent_change = ((current_spending - previous_spending) / previous_spending) * 100
+            trends[category] = percent_change
+
+    return trends
+
+
+def get_spending_anomalies(user_id):
+    """Get anomalies in the current month's spending compared to the average spending."""
+    current_month = datetime.utcnow().month
+    current_year = datetime.utcnow().year
+
+    # Fetch expenses for the current month
+    current_month_expenses = Expense.query.filter_by(user_id=user_id).filter(
+        db.extract('month', Expense.date) == current_month,
+        db.extract('year', Expense.date) == current_year
+    ).all()
+
+    # Calculate average spending for each category in previous months
+    previous_expenses = Expense.query.filter_by(user_id=user_id).filter(
+        or_(db.extract('month', Expense.date) != current_month,
+            db.extract('year', Expense.date) != current_year)
+    ).all()
+
+    average_expenses = {}
+    for category in PREDEFINED_CATEGORIES['expense']:
+        total_spending = sum(exp.amount for exp in previous_expenses if exp.source == category)
+        count = len([exp for exp in previous_expenses if exp.source == category])
+        average = total_spending / count if count != 0 else 0
+        average_expenses[category] = average
+
+    anomalies = {}
+    for category in PREDEFINED_CATEGORIES['expense']:
+        current_spending = sum(exp.amount for exp in current_month_expenses if exp.source == category)
+
+        if average_expenses[category] != 0 and current_spending > 1.2 * average_expenses[
+            category]:  # 20% more than average
+            anomalies[category] = current_spending
+
+    return anomalies
+
+#==============================================VISUALIZATION AND EXPORT FUNCTIONS=========================================================
 
 # Function to generate a pie chart visualizing spending by category.
 def generate_spending_chart(data):
@@ -321,36 +375,18 @@ def export_to_excel(data):
     return output
 
 
-def predict_future_expenses(days=30):
-    # Fetch the expenses data
-    expenses = Expense.query.filter_by(user_id=current_user.id).all()
-
-    # Prepare the data for Prophet
-    df = pd.DataFrame({
-        'ds': [expense.date for expense in expenses],
-        'y': [expense.amount for expense in expenses]
-    })
-
-    # Instantiate and fit the Prophet model
-    model = Prophet()
-    model.fit(df)
-
-    # Create a dataframe for future dates
-    future = model.make_future_dataframe(periods=days)
-
-    # Make predictions
-    forecast = model.predict(future)
-
-    return forecast
 
 
-# ----------------------------------------HELPER FUNCTIONS FOR NOTIFICATIONS AND ALERTS---------------------------------------------
+# ----------------------------------------HELPER FUNCTIONS FOR NOTIFICATIONS AND ALERTS------------------------------------------------------------
 
 def check_budget():
     users = User.query.all()
     for user in users:
-        if user.budget and sum(exp.amount for exp in user.expenses) >= user.budget.amount:
-            notify_user(user, "Your spending has reached your set budget.")
+        for category in PREDEFINED_CATEGORIES['expense']:
+            total_expense_for_category = sum(exp.amount for exp in user.expenses if exp.source == category)
+            budget_for_category = Budget.query.filter_by(user_id=user.id, category=category).first()
+            if budget_for_category and total_expense_for_category >= budget_for_category.amount:
+                notify_user(user, f"Your spending in {category} has reached or exceeded your set budget.")
 
 
 def check_large_expense():
@@ -415,65 +451,12 @@ def send_email_notification(to, subject, body):
     mail.send(msg)
 
 
-# ---------------------------------------------FORMS SECTION------------------------------------------------------------
+# -------------------------------------------USER AUTHENTICATION ROUTES-----------------------------------------------
+# Define the routes for user authentication (registration, login, logout).
 
-# User registration form definition
-class RegistrationForm(FlaskForm):
-    username = StringField('Username', validators=[DataRequired(), Length(min=2, max=20)])
-    email = StringField('Email', validators=[DataRequired(), Email()])
-    password = PasswordField('Password', validators=[DataRequired()])
-    confirm_password = PasswordField('Confirm Password', validators=[DataRequired(), EqualTo('password')])
-    submit = SubmitField('Sign Up')
-
-    # Validate username uniqueness
-    def validate_username(self, username):
-        user = User.query.filter_by(username=username.data).first()
-        if user:
-            raise ValidationError('That username is already taken. Please choose a different one.')
-
-    # Validate email uniqueness
-    def validate_email(self, email):
-        user = User.query.filter_by(email=email.data).first()
-        if user:
-            raise ValidationError('That email is already in use. Please choose a different one or log in.')
-
-
-# User login form definition
-class LoginForm(FlaskForm):
-    username = StringField('Username', validators=[DataRequired()])
-    password = PasswordField('Password', validators=[DataRequired()])
-    submit = SubmitField('Login')
-
-
-# Form to record expenses
-class ExpenseForm(FlaskForm):
-    source = SelectField('Category', choices=PREDEFINED_CATEGORIES['expense'],
-                         validators=[DataRequired(), Length(min=2, max=100)])
-    description = StringField('Description', validators=[Length(max=300)])  # Optional, so no DataRequired()
-    amount = FloatField('Amount', validators=[DataRequired()])
-    submit = SubmitField('Submit')
-
-
-# Form to set budget
-
-class BudgetForm(FlaskForm):
-    amount = FloatField('Budget Amount', validators=[DataRequired()])
-    submit = SubmitField('Set Budget')
-
-
-# ----------------------------------------- USER AUTHENTICATION METHODS ------------------------------------------------
-# Define how Flask-Login retrieves a specific user object
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
-
-
-# ---------------------------------------------ROUTES SECTION----------------------------------------------------------
-# Define the application routes which determine the functionality available at each URL.
-
-
-# -------------------------------------------USER AUTHENTICATION ROUTES-----------------------------------------------
-# Define the routes for user authentication (registration, login, logout).
 
 # This route is for user registration. It handles both GET (for displaying the registration form)
 # and POST (for processing the form data) requests.
@@ -503,7 +486,7 @@ def register():
             # Display a success message to the user.
             flash('Thanks for registering!')
             # Redirect the user to the main index page after successful registration.
-            return redirect(url_for('index'))
+            return redirect(url_for('dashboard'))
         except:
             # If there's an error during the registration process, rollback any database changes.
             db.session.rollback()
@@ -538,7 +521,7 @@ def login():
                 # Log the user in.
                 login_user(user)
                 # Redirect the user to the main index page after successful login.
-                return redirect(url_for('index'))
+                return redirect(url_for('dashboard'))
 
             # Display an error message if the login credentials are incorrect.
             flash('Invalid username or password')
@@ -563,8 +546,6 @@ def logout():
     # Redirect the user to the login page after logging out.
     return redirect(url_for('login'))
 
-
-# -------------------------------------------ACCOUNT MANAGEMENT ROUTES---------------------------------------------------
 
 @app.route('/profile')
 @login_required
@@ -707,28 +688,18 @@ def view_expenses():
 @app.route('/set_budget', methods=['GET', 'POST'])
 @login_required
 def set_budget():
-    print("Debug: Inside the /set_budget route")  # Debug line
     form = BudgetForm()
-
     if form.validate_on_submit():
-        budget = Budget.query.filter_by(user_id=current_user.id).first()
-
-        if budget:
-            budget.amount = form.amount.data
+        # Check if a budget for this category already exists
+        existing_budget = Budget.query.filter_by(user_id=current_user.id, category=form.category.data).first()
+        if existing_budget:
+            existing_budget.amount = form.amount.data
         else:
-            budget = Budget(amount=form.amount.data, user_id=current_user.id)
+            budget = Budget(category=form.category.data, amount=form.amount.data, user_id=current_user.id)
             db.session.add(budget)
-
         db.session.commit()
-        check_budget = Budget.query.filter_by(user_id=current_user.id).first()  # Debug line
-        print(f"Debug: Check budget for user {current_user.id} after commit is: {check_budget}")  # Debug line
-        print(f"Debug: Set budget for user {current_user.id} to: {budget.amount}")  # Debug line
-        flash('Your budget has been set!', 'success')
+        flash('Your budget has been set!')
         return redirect(url_for('view_budget'))
-
-    else:
-        print(f"Debug: Form did not validate. Errors: {form.errors}")  # Debug line
-
     return render_template('set_budget.html', title='Set Budget', form=form)
 
 
@@ -740,9 +711,9 @@ def set_budget():
 @app.route('/view_budget')
 @login_required
 def view_budget():
-    budget = Budget.query.filter_by(user_id=current_user.id).first()
-    print(f"Debug: Fetched budget for user {current_user.id} is: {budget}")  # Debug line
-    return render_template('view_budget.html', budget=budget)
+    budgets = Budget.query.filter_by(user_id=current_user.id).all()
+    return render_template('view_budget.html', budgets=budgets)
+
 
 
 # ------------------------------------------REPORT-ROUTES----------------------------------------------------------
@@ -822,91 +793,6 @@ def export_report():
     return send_file(excel_file, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                      as_attachment=True, download_name="report.xlsx")
 
-
-
-#-------------------------------------------Predictions Routes----------------------------------------------------------
-
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from math import sqrt
-
-@app.route('/predict_monthly_expense', methods=['GET'])
-@login_required
-def predict_monthly_expense():
-    # Fetch the expenses for the logged-in user
-    user_expenses = Expense.query.filter_by(user_id=current_user.id).all()
-
-    # If no expenses are found, return a message
-    if not user_expenses:
-        return "No expenses found for the user."
-
-    # Convert the expenses to a DataFrame
-    dataframe = pd.DataFrame([(e.id, e.user_id, e.source, e.amount, e.date, e.description) for e in user_expenses], columns=['id', 'user_id', 'source', 'amount', 'date', 'description'])
-
-    # Using your monthly_expense function to get monthly data for the logged-in user
-    monthly_expenses = monthly_expense(dataframe, user_id=current_user.id)
-
-    # If not enough data is available to make predictions, return a message
-    if len(monthly_expenses) < 3:  # At least 3 data points to split and predict
-        return "Not enough data to predict monthly expenses."
-
-    # Creating a new DataFrame for modeling
-    monthly_expenses['months'] = range(1, len(monthly_expenses) + 1)
-
-    # Split the data into training and test sets
-    train, test = train_test_split(monthly_expenses, test_size=0.2, random_state=42)
-
-    # Linear regression model
-    X_train = train[['months']]
-    y_train = train['amount']
-    X_test = test[['months']]
-    y_test = test['amount']
-
-    model = LinearRegression()
-    model.fit(X_train, y_train)
-    predictions = model.predict(X_test)
-
-    # Model Evaluation
-    mae = mean_absolute_error(y_test, predictions)
-    mse = mean_squared_error(y_test, predictions)
-    rmse = sqrt(mse)
-    r2 = r2_score(y_test, predictions)
-
-    # Print metrics to terminal
-    print("Model Evaluation Metrics:")
-    print(f"Mean Absolute Error (MAE): {mae}")
-    print(f"Mean Squared Error (MSE): {mse}")
-    print(f"Root Mean Squared Error (RMSE): {rmse}")
-    print(f"R^2 Score: {r2}")
-
-    # Predict the expense for the next month
-    next_month = len(monthly_expenses) + 1
-    predicted_expense = model.predict([[next_month]])
-
-    # Print predicted expense to terminal
-    print(f"Predicted Expense for Next Month: ${predicted_expense[0]:.2f}")
-
-
-@app.route('/predict_expenses', methods=['GET'])
-def predict_expenses():
-    # Ensure the user is authenticated
-    if not current_user.is_authenticated:
-        # Redirect to login or return a message, based on your requirement
-        return redirect(url_for('login'))
-
-    # Get the forecast using the helper function
-    forecast = predict_future_expenses(days=30)
-
-    # Render a template (see step 2) or return as JSON (see step 3)
-
-    # For rendering a template:
-    # return render_template('forecast.html', forecast=forecast)
-
-    # For returning as JSON:
-    return jsonify(forecast.to_dict())
-
-
 # ------------------------------------------NOTIFICATIONS ROUTES----------------------------------------------------------
 
 @app.route('/notifications/mark_all_as_read', methods=['POST'])
@@ -931,40 +817,42 @@ def send_email():
 
 # ------------------------------------------MAIN INDEX ROUTE----------------------------------------------------------
 
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    current_month_expenses = get_monthly_expenses(current_user.id)
+    budget = Budget.query.filter_by(user_id=current_user.id).first()
 
-# Main dashboard route
-@app.route('/index', methods=['GET'])
-def index():
-    return render_template('index.html')
+    if budget:
+        budget_amount = budget.amount
+        budget_progress = (current_month_expenses / budget_amount) * 100
+    else:
+        budget_amount = 0
+        budget_progress = 0
 
+    # Call the helper functions
+    trends = get_spending_trends(current_user.id)
+    anomalies = get_spending_anomalies(current_user.id)
 
+    # Process the trends to create user-friendly messages
+    trend_messages = []
+    for category, percent_change in trends.items():
+        if percent_change > 0:
+            trend_messages.append(f"Your spending on {category} has increased by {percent_change:.2f}% this month.")
+        else:
+            trend_messages.append(f"Your spending on {category} has decreased by {-percent_change:.2f}% this month.")
 
-#------------------------------------------TESTING SECTION----------------------------------------------------------
+    # Process anomalies to create user-friendly messages
+    anomaly_messages = []
+    for category, amount in anomalies.items():
+        anomaly_messages.append(f"You spent {amount} on {category} this month, which is higher than your average.")
 
-@app.route('/populate_test_data', methods=['GET'])
-def populate_test_data():
-    # Security check: Ensure this route is only accessible during development
-    if not app.config['DEBUG']:
-        abort(404)
-
-    # Retrieve the user for whom you want to add test data
-    user = User.query.filter_by(username='mb332').first()
-    if not user:
-        return "User not found", 404
-
-    # Generate and insert mock data
-    for _ in range(1000):
-        date = datetime.now() - timedelta(days=random.randint(0, 365))  # Random date from the past year
-        amount = random.uniform(5, 200)  # Random amount between 5 and 200
-        description = "Test expense"
-        source = "Housing"  # Or select from a list of categories if needed
-
-        expense = Expense(user_id=user.id, date=date, amount=amount, description=description, source=source)
-        db.session.add(expense)
-
-    db.session.commit()
-
-    return "Test data added successfully"
+    return render_template('dashboard.html',
+                           current_month_expenses=current_month_expenses,
+                           budget_amount=budget_amount,
+                           budget_progress=budget_progress,
+                           trend_messages=trend_messages,
+                           anomaly_messages=anomaly_messages)
 
 
 

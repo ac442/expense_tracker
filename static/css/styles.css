@@ -1,46 +1,66 @@
-/* Reset default browser styles */
-body, h1, h2, p {
-  margin: 0;
-  padding: 0;
+/* Reset default styles */
+body, h1, p {
+    margin: 0;
+    padding: 0;
 }
 
-/* Set background color to black */
+/* Create a terminal-like background */
 body {
-  background-color: black;
-  color: white;
-  font-family: 'Courier New', monospace;
-  font-size: 14px;
+    background-color: #000;
+    color: #00ff00; /* Green text */
+    font-family: monospace;
+    font-size: 16px;
+    line-height: 1.4;
+    padding: 20px;
 }
 
-/* Style headers */
-h1, h2 {
-  color: #00ff00; /* Green color for headers */
+/* Style the terminal prompt */
+.prompt {
+    color: #00ff00; /* Green text */
 }
 
-/* Style links */
+/* Style terminal commands */
+.command {
+    color: #00ff00; /* Green text */
+}
+
+/* Style terminal output */
+.output {
+    color: #ffffff; /* White text */
+}
+
+/* Style links to look like hyperlinks */
 a {
-  color: #3498db; /* Blue color for links */
-  text-decoration: none;
+    color: #0066cc; /* Blue text */
+    text-decoration: underline;
 }
 
-/* Style links on hover */
-a:hover {
-  text-decoration: underline;
+/* Style buttons */
+.button {
+    background-color: #0066cc; /* Blue button background */
+    color: #ffffff; /* White text */
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-size: 14px;
 }
 
-/* Style paragraphs */
-p {
-  margin-bottom: 15px;
+/* Style inputs */
+input {
+    background-color: #000; /* Black background */
+    color: #00ff00; /* Green text */
+    border: 1px solid #00ff00; /* Green border */
+    padding: 8px;
+    font-family: monospace;
+    font-size: 14px;
 }
 
-/* Style code blocks */
-pre {
-  background-color: #111111;
-  padding: 10px;
-  overflow: auto;
-  border: 1px solid #333333;
-  border-radius: 4px;
-  font-size: 12px;
-  line-height: 1.4;
-  white-space: pre-wrap;
+/* Style textareas */
+textarea {
+    background-color: #000; /* Black background */
+    color: #00ff00; /* Green text */
+    border: 1px solid #00ff00; /* Green border */
+    padding: 8px;
+    font-family: monospace;
+    font-size: 14px;
 }
