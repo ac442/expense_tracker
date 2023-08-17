@@ -1,34 +1,47 @@
 # ----- IMPORTS SECTION -----
 # Required packages and libraries to run the Flask application, handle database operations, manage authentication, and deal with forms.
-from datetime import datetime
-from flask import Flask, flash, redirect, render_template, send_file, url_for, jsonify
+from datetime import datetime, timedelta
+import logging
+from faker import Faker
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
 from flask_mail import Mail, Message
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import FlaskForm
 from flask_wtf.csrf import CSRFProtect
-from io import BytesIO
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
-import numpy as np
-from prophet import Prophet
+import numpy as np  # for linear regression
 import os
 import pandas as pd
+from prophet import Prophet
+import random
 from sklearn.linear_model import LinearRegression
-import unittest
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.model_selection import train_test_split
+import traceback
 from werkzeug.security import check_password_hash, generate_password_hash
 from wtforms import FloatField, PasswordField, SelectField, StringField, SubmitField
 from wtforms.validators import DataRequired, Email, EqualTo, Length, ValidationError
-import matplotlib.dates as mdates
-import logging
+from io import BytesIO
+import unittest
+from math import sqrt
 
 # Create a new Flask web server instance
 app = Flask(__name__)
 
 # Configure database settings for the Flask application
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'your_database.db')
+# Determine the path to the current file
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Construct the database path using the BASE_DIR
+DATABASE_PATH = os.path.join(BASE_DIR, 'your_database_name.db')
+
+
 app.config['SECRET_KEY'] = 'your_secret_key'  # Change this to a random value for production
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DATABASE_PATH}'
+db = SQLAlchemy(app)
 
 # Initialize CSRF protection
 # csrf = CSRFProtect(app)
@@ -45,15 +58,18 @@ mail = Mail(app)
 mail.init_app(app)
 
 # Create a new SQLAlchemy database instance
-db = SQLAlchemy(app)
-migrate = Migrate(app, db)
+
+#migrate = Migrate(app, db)
+
+
 
 PREDEFINED_CATEGORIES = {
-    'expense': ["Housing", "Transportation", "Food", "Personal Care & Health", "Entertainment & Leisure",
-                "Financial & Insurance", "Education", "Clothing & Accessories", "Kids & Family", "Pets",
-                "Gifts/Donations", "Memberships/Subscriptions", "Professional Services", "Travel/Vacations",
-                "Utilities & Bills", "Groceries", "Dining Out", "Personal Debt", "Investments", "Savings", "Taxes",
-                "Miscellaneous Expenses"]
+    'expense': ["Housing & Utilities", "Food & Dining", "Transportation",
+                "Personal Care & Lifestyle", "Savings", "Investments",
+                "Personal Debt", "Taxes", "Family & Relationships",
+                "Education & Professional Services", "Miscellaneous"]
+
+
 }
 
 # Setup and initialize Flask-Login's login manager
@@ -130,20 +146,111 @@ class Notification(db.Model):
     user = db.relationship('User', back_populates='notifications', lazy=True)
 
 
-# -----------------------------------------HELPER FUNCTIONS -------------------------------------------------------------
+@app.cli.command("initdb")
+def initdb_command():
+    """Initialize the database."""
+    db.create_all()
+    print("Database initialized.")
+
+
+# -----------------------------------------DATA GENERATION ROUTE -------------------------------------------------------------
+@app.route('/generate_fake_data')
+def generate_fake_data():
+    num_entries = 1000  # For example, create 1000 fake entries. Adjust this number as needed.
+
+    fake = Faker()
+
+    # Get all user IDs
+    user_ids = [user.id for user in User.query.all()]
+
+    if not user_ids:
+        return "No users in the database. Please add a user first."
+
+    try:
+        # Randomly generate fake data for each entry
+        for _ in range(num_entries):
+            source = random.choice(PREDEFINED_CATEGORIES['expense'])
+            amount = round(random.uniform(1, 2000), 2)  # Assuming expenses range from $1 to $2000
+            date = fake.date_this_decade()  # Random date within this decade
+            description = fake.sentence(nb_words=5)  # A 5-word description
+
+            # Get a random user ID
+            random_user_id = random.choice(user_ids)
+
+            # Create a new Expense object with the fake data.
+            expense = Expense(source=source, amount=amount, date=date, description=description, user_id=random_user_id)
+
+            # Add the expense entry to the database.
+            db.session.add(expense)
+
+        # Commit all the fake entries to the database
+        db.session.commit()
+
+    except Exception as e:
+        # Rollback in case of any errors
+        db.session.rollback()
+
+        # Log the error for debugging
+        print("An error occurred:", str(e))
+        traceback.print_exc()
+
+        return "An error occurred while generating fake data."
+
+    return "Fake data generated!"
 
 
 # ----------------------------------------HELPER FUNCTIONS FOR REPORTS AND ANALYTICS----------------------------------
+####
+def weekly_expense(dataframe, user_id=None):
+    dataframe['date'] = pd.to_datetime(dataframe['date'])
+
+    # Filter the dataframe for the specific user if user_id is provided
+    if user_id:
+        dataframe = dataframe[dataframe['user_id'] == user_id]
+
+    weekly_exp = dataframe.resample('W-Mon', on='date').sum()
+    return weekly_exp
+
+def monthly_expense(dataframe, user_id=None):
+    dataframe['date'] = pd.to_datetime(dataframe['date'])
+
+    # Filter the dataframe for the specific user if user_id is provided
+    if user_id:
+        dataframe = dataframe[dataframe['user_id'] == user_id]
+
+    monthly_exp = dataframe.resample('M', on='date').sum()
+    return monthly_exp
+
+
+
 
 
 def collect_expense_data(expenses):
-    """Collect and return the sum of expenses by category."""
-    category_data = {}  # This will store sum of expenses by category.
+    """
+    This function collects and returns the sum of expenses by category.
+
+    Parameters:
+    - expenses: A list of expense objects.
+                Each expense object is expected to have 'source' and 'amount' attributes.
+    """
+
+    # Create an empty dictionary to store the sum of expenses by category.
+    category_data = {}
+
+    # Loop through each expense in the provided list.
     for expense in expenses:
+
+        # If the source (or category) of the expense is already in the dictionary,
+        # add the amount of the current expense to its existing value.
         if expense.source in category_data:
             category_data[expense.source] += expense.amount
+
+        # If the source (or category) of the expense is not in the dictionary,
+        # create a new entry with the source as the key and the expense amount as the value.
         else:
             category_data[expense.source] = expense.amount
+
+    # Return the dictionary with summed expenses by category.
     return category_data
 
 
@@ -702,9 +809,10 @@ def export_report():
 
     # Populate the data dictionary with actual data from the database.
     data = {
+        "Description": [expense.description for expense in expenses],  # List comprehension
+        "Amount": [expense.amount for expense in expenses],
         "Date": [expense.date for expense in expenses],
         "Expense Category": [expense.source for expense in expenses],
-        "Amount": [expense.amount for expense in expenses]
     }
 
     # Generate the Excel file in-memory.
@@ -715,29 +823,88 @@ def export_report():
                      as_attachment=True, download_name="report.xlsx")
 
 
-@app.route('/predict_expenses', methods=['GET', 'POST'])
+
+#-------------------------------------------Predictions Routes----------------------------------------------------------
+
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from math import sqrt
+
+@app.route('/predict_monthly_expense', methods=['GET'])
 @login_required
+def predict_monthly_expense():
+    # Fetch the expenses for the logged-in user
+    user_expenses = Expense.query.filter_by(user_id=current_user.id).all()
+
+    # If no expenses are found, return a message
+    if not user_expenses:
+        return "No expenses found for the user."
+
+    # Convert the expenses to a DataFrame
+    dataframe = pd.DataFrame([(e.id, e.user_id, e.source, e.amount, e.date, e.description) for e in user_expenses], columns=['id', 'user_id', 'source', 'amount', 'date', 'description'])
+
+    # Using your monthly_expense function to get monthly data for the logged-in user
+    monthly_expenses = monthly_expense(dataframe, user_id=current_user.id)
+
+    # If not enough data is available to make predictions, return a message
+    if len(monthly_expenses) < 3:  # At least 3 data points to split and predict
+        return "Not enough data to predict monthly expenses."
+
+    # Creating a new DataFrame for modeling
+    monthly_expenses['months'] = range(1, len(monthly_expenses) + 1)
+
+    # Split the data into training and test sets
+    train, test = train_test_split(monthly_expenses, test_size=0.2, random_state=42)
+
+    # Linear regression model
+    X_train = train[['months']]
+    y_train = train['amount']
+    X_test = test[['months']]
+    y_test = test['amount']
+
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+    predictions = model.predict(X_test)
+
+    # Model Evaluation
+    mae = mean_absolute_error(y_test, predictions)
+    mse = mean_squared_error(y_test, predictions)
+    rmse = sqrt(mse)
+    r2 = r2_score(y_test, predictions)
+
+    # Print metrics to terminal
+    print("Model Evaluation Metrics:")
+    print(f"Mean Absolute Error (MAE): {mae}")
+    print(f"Mean Squared Error (MSE): {mse}")
+    print(f"Root Mean Squared Error (RMSE): {rmse}")
+    print(f"R^2 Score: {r2}")
+
+    # Predict the expense for the next month
+    next_month = len(monthly_expenses) + 1
+    predicted_expense = model.predict([[next_month]])
+
+    # Print predicted expense to terminal
+    print(f"Predicted Expense for Next Month: ${predicted_expense[0]:.2f}")
+
+
+@app.route('/predict_expenses', methods=['GET'])
 def predict_expenses():
-    # 1. Data Collection
-    expenses = Expense.query.filter_by(user_id=current_user.id).all()
+    # Ensure the user is authenticated
+    if not current_user.is_authenticated:
+        # Redirect to login or return a message, based on your requirement
+        return redirect(url_for('login'))
 
-    # 2. Data Preparation
-    dates = [expense.date for expense in expenses]
-    amounts = [expense.amount for expense in expenses]
+    # Get the forecast using the helper function
+    forecast = predict_future_expenses(days=30)
 
-    # 3. Model Selection & 4. Model Training
-    X = np.array([d.toordinal() for d in dates]).reshape(-1, 1)
-    y = np.array(amounts)
-    model = LinearRegression().fit(X, y)
+    # Render a template (see step 2) or return as JSON (see step 3)
 
-    # 5. Prediction
-    future_date = datetime.date.today() + datetime.timedelta(days=30)  # Predict for 30 days from today
-    predicted_expense = model.predict(np.array([[future_date.toordinal()]]))[0]
+    # For rendering a template:
+    # return render_template('forecast.html', forecast=forecast)
 
-    # Optionally: Visualization (You might use libraries like Matplotlib or Plotly for this)
-
-    # Display the prediction to the user
-    return render_template('prediction.html', prediction=predicted_expense)
+    # For returning as JSON:
+    return jsonify(forecast.to_dict())
 
 
 # ------------------------------------------NOTIFICATIONS ROUTES----------------------------------------------------------
@@ -769,6 +936,36 @@ def send_email():
 @app.route('/index', methods=['GET'])
 def index():
     return render_template('index.html')
+
+
+
+#------------------------------------------TESTING SECTION----------------------------------------------------------
+
+@app.route('/populate_test_data', methods=['GET'])
+def populate_test_data():
+    # Security check: Ensure this route is only accessible during development
+    if not app.config['DEBUG']:
+        abort(404)
+
+    # Retrieve the user for whom you want to add test data
+    user = User.query.filter_by(username='mb332').first()
+    if not user:
+        return "User not found", 404
+
+    # Generate and insert mock data
+    for _ in range(1000):
+        date = datetime.now() - timedelta(days=random.randint(0, 365))  # Random date from the past year
+        amount = random.uniform(5, 200)  # Random amount between 5 and 200
+        description = "Test expense"
+        source = "Housing"  # Or select from a list of categories if needed
+
+        expense = Expense(user_id=user.id, date=date, amount=amount, description=description, source=source)
+        db.session.add(expense)
+
+    db.session.commit()
+
+    return "Test data added successfully"
+
 
 
 # -------------------------------------------MAIN METHOD---------------------------------------------------------------

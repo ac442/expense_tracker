@@ -1,0 +1,24 @@
+<!-- templates/predict_monthly_expenses.html -->
+
+{% extends "base.html" %}
+
+{% block content %}
+    <section>
+        <h2>Predicted Monthly Expense</h2>
+
+        <p><strong>Predicted Expense for Next Month:</strong> ${{ predicted_expense|round(2) }}</p>
+
+        <h3>Error Metrics:</h3>
+        <ul>
+            <li><strong>Mean Absolute Error (MAE):</strong> ${{ mae|round(2) }}</li>
+            <li><strong>Mean Squared Error (MSE):</strong> ${{ mse|round(2) }}</li>
+            <li><strong>Root Mean Squared Error (RMSE):</strong> ${{ rmse|round(2) }}</li>
+            <li><strong>R^2 Score:</strong> {{ r2_score|round(2) }}</li>
+        </ul>
+
+        <p>
+            Note: A higher R^2 score (close to 1) indicates a better fit of the model to the data,
+            while lower error values suggest better prediction accuracy.
+        </p>
+    </section>
+{% endblock %}
