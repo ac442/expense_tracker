@@ -1,41 +1,28 @@
 /* Reset default styles */
-body, h1, p {
+body, h1, p, li {
     margin: 0;
     padding: 0;
 }
 
-/* Create a terminal-like background */
 body {
-    background-color: #000;
-    color: #00ff00; /* Green text */
-    font-family: monospace;
+    background-color: #f4f4f4; /* Light gray background */
+    color: #333333; /* Almost black text */
+    font-family: Arial, sans-serif;
     font-size: 16px;
     line-height: 1.4;
     padding: 20px;
 }
 
-/* Style the terminal prompt */
-.prompt {
-    color: #00ff00; /* Green text */
-}
-
-/* Style terminal commands */
-.command {
-    color: #00ff00; /* Green text */
-}
-
-/* Style terminal output */
-.output {
-    color: #ffffff; /* White text */
-}
-
-/* Style links to look like hyperlinks */
 a {
     color: #0066cc; /* Blue text */
     text-decoration: underline;
+    transition: color 0.3s ease; /* Smooth color transition */
 }
 
-/* Style buttons */
+a:hover {
+    color: #004499; /* Darker blue on hover */
+}
+
 .button {
     background-color: #0066cc; /* Blue button background */
     color: #ffffff; /* White text */
@@ -43,24 +30,12 @@ a {
     padding: 10px 20px;
     cursor: pointer;
     font-size: 14px;
+    transition: background-color 0.3s ease; /* Smooth background transition */
 }
 
-/* Style inputs */
-input {
-    background-color: #000; /* Black background */
-    color: #00ff00; /* Green text */
-    border: 1px solid #00ff00; /* Green border */
-    padding: 8px;
-    font-family: monospace;
-    font-size: 14px;
+.button:hover {
+    background-color: #004499; /* Darker blue on hover */
 }
 
-/* Style textareas */
-textarea {
-    background-color: #000; /* Black background */
-    color: #00ff00; /* Green text */
-    border: 1px solid #00ff00; /* Green border */
-    padding: 8px;
-    font-family: monospace;
-    font-size: 14px;
-}
+input, textarea {
+    background-color: #ffffff;}

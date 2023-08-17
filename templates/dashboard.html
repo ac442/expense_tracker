@@ -14,13 +14,21 @@
     <h2>Analytics and Reports</h2>
     <p class="command"><a href="{{ url_for('view_spending_trends') }}">View Spending Trends</a></p>
     <p class="command"><a href="{{ url_for('view_spending_anomalies') }}">View Spending Anomalies</a></p>
-    <p class="command"><a href="{{ url_for('generate_spending_chart') }}">Visualize Spending by Category</a></p>
-    <p class="command"><a href="{{ url_for('generate_spending_over_time') }}">Visualize Spending Over Time</a></p>
-    <p class="command"><a href="{{ url_for('export_expenses') }}">Export Expenses to Excel</a></p>
 
-    <h2>Notifications and Alerts</h2>
-    <p class="command"><a href="{{ url_for('check_alerts') }}">Check for Alerts and Notifications</a></p>
-    <p class="command"><a href="{{ url_for('view_notifications') }}">View Notifications</a></p>
+    Display Spending Trends -->
+    <h2>Spending Trends</h2>
+    <ul>
+        {% for message in trend_messages %}
+            <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
 
+    <!-- Display Spending Anomalies -->
+    <h2>Spending Anomalies</h2>
+    <ul>
+        {% for message in anomaly_messages %}
+            <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
 </div>
 {% endblock %}

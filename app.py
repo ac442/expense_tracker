@@ -770,6 +770,28 @@ def spending_over_time_report():
     return send_file(chart, mimetype="image/png")
 
 
+
+@app.route('/spending-trends')
+@login_required
+def view_spending_trends():
+    trends = get_spending_trends(current_user.id)
+
+    trend_messages = []
+    for category, percent_change in trends.items():
+        if percent_change > 0:
+            trend_messages.append(f"Your spending on {category} has increased by {percent_change:.2f}% this month.")
+        else:
+            trend_messages.append(f"Your spending on {category} has decreased by {-percent_change:.2f}% this month.")
+
+    return render_template('spending_trends.html', trend_messages=trend_messages)
+
+@app.route('/view_spending_anomalies')
+@login_required
+def view_spending_anomalies():
+    anomalies = get_spending_anomalies(current_user.id)
+    return render_template('spending_anomalies.html', anomalies=anomalies)
+
+
 @app.route('/reports/export')
 @login_required
 def export_report():
