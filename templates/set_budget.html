@@ -1,25 +1,27 @@
-{% extends "base.html" %}
+{% extends 'base.html' %}
 
 {% block content %}
-<h2>Set Your Budget</h2>
-<form action="/set_budget" method="post">
-    <!-- Include the CSRF token -->
-    {{ form.hidden_tag() }}
+<h2>Set Budget</h2>
 
-    <!-- Category Dropdown -->
-    <label for="category">Budget Category:</label>
-    {{ form.category.label }} {{ form.category() }}
-    <br><br>
-
-    <!-- Budget Amount -->
-    <label for="amount">Budget Amount:</label>
-    {{ form.amount.label }} {{ form.amount() }}
-    <br><br>
-
-    <input type="submit" value="Set Budget">
+<!-- Main Budget Form -->
+<form action="{{ url_for('set_budget') }}" method="post">
+    {{ main_budget_form.hidden_tag() }}
+    <div>
+        {{ main_budget_form.main_budget.label }}: {{ main_budget_form.main_budget() }}
+    </div>
+    <input type="submit" value="Set Main Budget">
 </form>
 
-<!-- Add this link to navigate back to the index page -->
-<a href="{{ url_for('index') }}">Back to Home</a>
+<hr>
 
+<!-- Category Budget Form -->
+<form action="{{ url_for('set_budget') }}" method="post">
+    {{ category_budget_form.hidden_tag() }}
+    {% for category, field in category_budget_form.budgets.items() %}
+    <div>
+        {{ field.label }}: {{ field() }}
+    </div>
+    {% endfor %}
+    <input type="submit" value="Set Category Budgets">
+</form>
 {% endblock %}

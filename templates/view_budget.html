@@ -1,20 +1,6 @@
-{% extends "base.html" %}
-
-{% block content %}
-<h2>Your Budgets</h2>
-
-{% if budgets %}
-    <ul>
-    {% for budget_item in budgets %}
-        <li>
-            Category: {{ budget_item.category }} - Budget Amount: ${{ budget_item.amount }}
-        </li>
-    {% endfor %}
-    </ul>
-{% else %}
-<p>You have not set any budgets yet.</p>
-{% endif %}
-
-<a href="{{ url_for('dashboard') }}">Back to Home</a>
-
-{% endblock %}
+{% for budget in budgets %}
+    <tr>
+        <td>{{ budget.category }}</td>
+        <td>{{ budget.amount }}</td>
+    </tr>
+{% endfor %}

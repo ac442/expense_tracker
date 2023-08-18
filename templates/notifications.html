@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h2>Notifications</h2>
+    <ul>
+    {% for notification in notifications %}
+        <li>
+            {{ notification.message }}
+            <small>Received: {{ notification.date_created.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+        </li>
+    {% endfor %}
+    </ul>
+{% endblock %}

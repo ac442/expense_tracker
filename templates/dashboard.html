@@ -13,9 +13,26 @@
 
     <h2>Analytics and Reports</h2>
     <p class="command"><a href="{{ url_for('view_spending_trends') }}">View Spending Trends</a></p>
-    <p class="command"><a href="{{ url_for('view_spending_anomalies') }}">View Spending Anomalies</a></p>
 
-    Display Spending Trends -->
+    <h2>Your Budgets</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Category</th>
+                <th>Budget Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for category in PREDEFINED_CATEGORIES['expense'] %}
+                {% set budget = current_user.get_budget_for_category(category) %}
+                <tr>
+                    <td>{{ category }}</td>
+                    <td>{{ budget.amount if budget else "No budget set" }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
     <h2>Spending Trends</h2>
     <ul>
         {% for message in trend_messages %}
@@ -23,12 +40,5 @@
         {% endfor %}
     </ul>
 
-    <!-- Display Spending Anomalies -->
-    <h2>Spending Anomalies</h2>
-    <ul>
-        {% for message in anomaly_messages %}
-            <li>{{ message }}</li>
-        {% endfor %}
-    </ul>
 </div>
 {% endblock %}

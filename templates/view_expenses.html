@@ -1,10 +1,18 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>View Expenses</h2>
+
+<!-- Button to add a new expense -->
+<a href="{{ url_for('add_expense') }}" class="btn btn-primary">Add New Expense</a>
+
 <table border="1">
     <thead>
         <tr>
             <th>Description</th>
             <th>Amount</th>
-            <th>Date</th> <!-- Added this header -->
-            <th>Source</th> <!-- Added this header -->
+            <th>Date</th>
+            <th>Source</th>
             <th>Actions</th>
         </tr>
     </thead>
@@ -13,7 +21,7 @@
         <tr>
             <td>{{ expense.description }}</td>
             <td>{{ expense.amount }}</td>
-            <td>{{ expense.date.strftime('%Y-%m-%d %H:%M:%S') }}</td> <!-- Formatting the date for better display -->
+            <td>{{ expense.date.strftime('%Y-%m-%d %H:%M:%S') }}</td>
             <td>{{ expense.source }}</td>
             <td>
                 <a href="{{ url_for('edit_expense', expense_id=expense.id) }}">Edit</a> |
@@ -23,3 +31,8 @@
         {% endfor %}
     </tbody>
 </table>
+
+<br>
+<a href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+
+{% endblock %}

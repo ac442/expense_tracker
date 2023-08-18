@@ -3,16 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Your App Title</title>
+    <title>Budget Buddy</title>
     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
 <body>
     <header>
-        <nav>
-            <ul>
+        <nav class="navbar">
+            <div class="navbar-brand">
+                <a href="{{ url_for('dashboard') }}">Your App</a>
+            </div>
+            <ul class="navbar-menu">
                 <li><a href="{{ url_for('dashboard') }}">Dashboard</a></li>
-                <li><a href="{{ url_for('login') }}">Login</a></li>
-                <li><a href="{{ url_for('register') }}">Register</a></li>
+                <li><a href="{{ url_for('view_notifications') }}">Notifications <span class="notification-count">{{ unread_notifications_count }}</span></a></li>
                 <li><a href="{{ url_for('logout') }}">Logout</a></li>
                 <!-- You can add more links here -->
             </ul>
