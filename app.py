@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from datetime import datetime
 from io import BytesIO
 import matplotlib.pyplot as plt
@@ -7,10 +8,12 @@ import pandas as pd
 from flask import Flask, flash, redirect, render_template, send_file, url_for, request
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
 from flask_mail import Mail, Message
+from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import FlaskForm
 from sqlalchemy import or_
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 from wtforms import FloatField, PasswordField, SelectField, StringField, SubmitField
 from wtforms.validators import DataRequired, Email, EqualTo, Length, ValidationError
 
@@ -20,10 +23,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DATABASE_PATH = os.path.join(BASE_DIR, 'your_database_name.db')
 
-
 app.config['SECRET_KEY'] = 'your_secret_key'  # Change this to a random value for production
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DATABASE_PATH}'
+app.config['WTF_CSRF_ENABLED'] = False
+
 db = SQLAlchemy(app)
+flask_migrate = Migrate(app, db)
 
 # Initialize CSRF protection
 # csrf = CSRFProtect(app)
@@ -39,7 +44,6 @@ app.config['MAIL_USE_SSL'] = False
 mail = Mail(app)
 mail.init_app(app)
 
-
 PREDEFINED_CATEGORIES = {
     'expense': ["Housing & Utilities", "Food & Dining", "Transport",
                 "Personal Care & Lifestyle", "Savings", "Investments",
@@ -47,10 +51,10 @@ PREDEFINED_CATEGORIES = {
                 "Education & Professional Services", "Miscellaneous"]
 }
 
-
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
 
 # ============================================BASIC UTILITY FUNCTIONS===================================================
 
@@ -58,10 +62,13 @@ login_manager.login_view = 'login'
 def initdb_command():
     db.create_all()
     print("Database reset and initialized.")
+
+
 @login_manager.unauthorized_handler
 def unauthorized():
     flash('You need to login first.')
     return redirect(url_for('login'))
+
 
 @app.context_processor
 def inject_notifications_count():
@@ -69,6 +76,32 @@ def inject_notifications_count():
         unread_notifications_count = Notification.query.filter_by(user_id=current_user.id, is_read=False).count()
         return {'unread_notifications_count': unread_notifications_count}
     return {}
+
+
+@app.template_filter('to_snake_case')
+def to_snake_case(string):
+    return string.lower().replace(' & ', '_and_').replace(' ', '_')
+
+
+def get_previous_and_current_month_names():
+    current_month_num = datetime.utcnow().month
+    current_year = datetime.utcnow().year
+
+    if current_month_num == 1:
+        previous_month_num = 12
+        previous_year = current_year - 1
+    else:
+        previous_month_num = current_month_num - 1
+        previous_year = current_year
+
+    month_names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+                   "November", "December"]
+    current_month_name = month_names[current_month_num - 1]
+    previous_month_name = month_names[previous_month_num - 1]
+
+    return previous_month_name, previous_year, current_month_name, current_year
+
+
 # -----------------------------------DATA MODELS SECTION----------------------------------------------------------------
 
 
@@ -82,7 +115,6 @@ class User(UserMixin, db.Model):
     expenses = db.relationship('Expense', back_populates='user', lazy=True)
     budgets = db.relationship('Budget', back_populates='user', lazy=True)
     notifications = db.relationship('Notification', back_populates='user', lazy=True)
-
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -103,25 +135,40 @@ class Expense(db.Model):
     description = db.Column(db.String(200))
     user = db.relationship('User', back_populates='expenses')
 
-    def get_monthly_expenses(user_id):
+    @classmethod
+    def compute_spending_trends(cls, user_id):
         current_month = datetime.utcnow().month
         current_year = datetime.utcnow().year
 
-        monthly_expenses = Expense.query.filter_by(user_id=user_id).filter(
-            db.extract('month', Expense.date) == current_month,
-            db.extract('year', Expense.date) == current_year
+        # Calculate the previous month and year
+        if current_month == 1:
+            previous_month = 12
+            previous_year = current_year - 1
+        else:
+            previous_month = current_month - 1
+            previous_year = current_year
+
+        # Fetch expenses for the current and previous month
+        current_month_expenses = cls.query.filter_by(user_id=user_id).filter(
+            db.extract('month', cls.date) == current_month,
+            db.extract('year', cls.date) == current_year
         ).all()
 
-        return sum(expense.amount for expense in monthly_expenses)
+        previous_month_expenses = cls.query.filter_by(user_id=user_id).filter(
+            db.extract('month', cls.date) == previous_month,
+            db.extract('year', cls.date) == previous_year
+        ).all()
 
-    def collect_expense_data(expenses):
-        category_data = {}
-        for expense in expenses:
-            if expense.category in category_data:
-                category_data[expense.category] += expense.amount
-            else:
-                category_data[expense.category] = expense.amount
-        return category_data
+        trends = {}
+        for category in PREDEFINED_CATEGORIES['expense']:
+            current_spending = sum(exp.amount for exp in current_month_expenses if exp.category == category)
+            previous_spending = sum(exp.amount for exp in previous_month_expenses if exp.category == category)
+
+            if previous_spending != 0:
+                percent_change = ((current_spending - previous_spending) / previous_spending) * 100
+                trends[category] = percent_change
+
+        return trends
 
 
 class Budget(db.Model):
@@ -129,14 +176,14 @@ class Budget(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     category = db.Column(db.String(80), nullable=False)
     amount = db.Column(db.Integer, nullable=False)
-    user = db.relationship('User', back_populates='budgets')  # Changed 'budget' to 'budgets'
+    user = db.relationship('User', back_populates='budgets')  # Assuming you have a 'User' model
 
     # This constraint ensures that the combination of user_id and category is unique
     __table_args__ = (db.UniqueConstraint('user_id', 'category', name='unique_category_per_user'),)
 
-    @staticmethod
-    def get_budget_for_category(user_id, category):
-        return Budget.query.filter_by(user_id=user_id, category=category).first()
+    @classmethod
+    def get_budget_for_category(cls, user_id, category):
+        return cls.query.filter_by(user_id=user_id, category=category).first()
 
 
 class Notification(db.Model):
@@ -146,6 +193,8 @@ class Notification(db.Model):
     date_created = db.Column(db.DateTime, index=True, default=datetime.utcnow)
     is_read = db.Column(db.Boolean, default=False)
     user = db.relationship('User', back_populates='notifications', lazy=True)
+
+
 def check_budget():
     users = User.query.all()
     for user in users:
@@ -207,7 +256,8 @@ def send_email_notification(to, subject, body):
     msg.body = body
     mail.send(msg)
 
-#---------------------------------------------FORMS SECTION------------------------------------------------------------
+
+# ---------------------------------------------FORMS SECTION------------------------------------------------------------
 
 
 class RegistrationForm(FlaskForm):
@@ -233,6 +283,10 @@ class LoginForm(FlaskForm):
     password = PasswordField('Password', validators=[DataRequired()])
     submit = SubmitField('Login')
 
+    class Meta:
+        csrf = False  # This is the default behavior, so you can omit it if you want CSRF protection.
+        # Add other Meta attributes as needed.
+
 
 class EditProfileForm(FlaskForm):
     first_name = StringField('First Name', validators=[Length(max=50)])
@@ -240,6 +294,8 @@ class EditProfileForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired(), Email()])
     submit = SubmitField('Update Profile')
 
+    class Meta:
+        csrf = False
 
     def validate_username(self, username):
         if username.data != current_user.username:
@@ -267,13 +323,18 @@ class MainBudgetForm(FlaskForm):
     submit = SubmitField('Set Main Budget')
 
 
-class CategoryBudgetForm(FlaskForm):
-    budgets = {}
-    for category in PREDEFINED_CATEGORIES['expense']:
-        budgets[category] = FloatField(category)
-    submit = SubmitField('Set Category Budgets')
+def create_category_budget_form(categories):
+    class DynamicCategoryBudgetForm(FlaskForm):
+        submit = SubmitField('Set Category Budgets')
 
-#==============================================VISUALIZATION AND EXPORT FUNCTIONS=========================================================
+    for category in categories:
+        field_name = to_snake_case(category)
+        setattr(DynamicCategoryBudgetForm, field_name, FloatField(category))
+
+    return DynamicCategoryBudgetForm()
+
+
+# ==============================================VISUALIZATION AND EXPORT FUNCTIONS=========================================================
 
 # Function to generate a pie chart visualizing spending by category.
 def generate_spending_chart(data):
@@ -285,6 +346,7 @@ def generate_spending_chart(data):
     plt.savefig(buf, format="png")
     buf.seek(0)
     return buf
+
 
 def generate_spending_over_time(data):
     plt.figure(figsize=(12, 7))
@@ -305,10 +367,9 @@ def export_to_excel(data):
     output.seek(0)
     return output
 
+
 # -------------------------------------------USER AUTHENTICATION ROUTES-----------------------------------------------
 # Define the routes for user authentication (registration, login, logout).
-
-
 
 
 # Assuming the User model and other necessary configurations have been defined above...
@@ -317,38 +378,39 @@ def export_to_excel(data):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    form = RegistrationForm()
+    if request.method == 'POST':
+        username = request.form.get('username')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
 
-    if form.validate_on_submit():
-        username = form.username.data
-        email = form.email.data
-        password = form.password.data
+        if password != confirm_password:
+            flash('Passwords do not match!')
+            return render_template('register.html')
 
-        # Check if username or email already exists
-        existing_user = User.query.filter((User.username == username) | (User.email == email)).first()
+        existing_user = User.query.filter_by(username=username).first()
         if existing_user:
-            flash('Username or email already exists. Please choose another one.')
-            return render_template('auth/register.html', form=form)
+            flash('Username already exists!')
+            return render_template('register.html')
 
-        user = User(username=username, email=email, password_hash=generate_password_hash(password, method='sha256'))
+        hashed_password = generate_password_hash(password, method='sha256')
+        new_user = User(username=username, email=email, password_hash=hashed_password)
 
-        try:
-            db.session.add(user)
-            db.session.commit()
-            login_user(user)
-            flash('Thanks for registering!')
-            return redirect(url_for('dashboard'))
-        except Exception as e:
-            db.session.rollback()
-            print(f"Error registering user: {e}")  # Logging the error can help diagnose issues.
-            flash('Error! Unable to register at the moment.')
-            return render_template('auth/register.html', form=form)
+        db.session.add(new_user)
+        db.session.commit()
 
-    # If it's a GET request or the form data is invalid, display the registration form.
-    return render_template('auth/register.html', form=form)
+        flash('Registration successful!')
+        return redirect(url_for('login'))  # Assuming you have a 'login' route
 
+    return render_template('register.html')
+
+
+if __name__ == '__main__':
+    db.create_all()  # Create database tables
+    app.run(debug=True)
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -360,7 +422,6 @@ def login():
             password = form.password.data
             user = User.query.filter_by(username=username).first()
             if user and user.check_password(password):
-
                 login_user(user)
 
                 return redirect(url_for('dashboard'))
@@ -371,7 +432,8 @@ def login():
         flash('Error during login. Please try again.')
 
     # If it's a GET request or the form data is invalid, display the login form.
-    return render_template('auth/login.html', form=form)
+    return render_template('login.html', form=form), 401
+
 
 @app.route('/logout')
 # Ensure that only logged-in users can access this route.
@@ -386,6 +448,7 @@ def logout():
 @login_required
 def profile():
     return render_template('profile.html', user=current_user)
+
 
 @app.route('/edit_profile_details', methods=['GET', 'POST'])
 @login_required
@@ -402,8 +465,7 @@ def edit_profile_details():
         form.first_name.data = current_user.first_name
         form.last_name.data = current_user.last_name
         form.email.data = current_user.email
-    return render_template('edit_profile_details.html', form=form)
-
+    return render_template('edit_profile_details.html', form=form), 401
 
 
 # ------------------------------------------EXPENSE-ROUTES----------------------------------------------------------
@@ -516,6 +578,7 @@ def delete_expense(expense_id):
     # Redirect the user to the expense list page after the deletion attempt.
     return redirect(url_for('view_expenses'))
 
+
 @app.route('/view_expenses')
 # Ensure that only logged-in users can access this route.
 @login_required
@@ -534,7 +597,7 @@ def view_expenses():
 @login_required
 def set_budget():
     main_budget_form = MainBudgetForm()
-    category_budget_form = CategoryBudgetForm()
+    category_budget_form = create_category_budget_form(PREDEFINED_CATEGORIES['expense'])
 
     if main_budget_form.validate_on_submit() and 'main_budget' in request.form:
         # Handle the main budget logic here. Assuming category "Main" represents the main budget.
@@ -550,8 +613,8 @@ def set_budget():
 
     if category_budget_form.validate_on_submit():
         # Loop over each category in the form
-        for category, field in category_budget_form.budgets.items():
-            if field.data:  # Only process categories that have data
+        for category, field in category_budget_form._fields.items():
+            if category != 'submit' and field.data:  # Only process categories that have data
                 existing_budget = Budget.get_budget_for_category(current_user.id, category)
                 if existing_budget:
                     existing_budget.amount = field.data
@@ -562,9 +625,9 @@ def set_budget():
         flash('Your category budgets have been set!')
         return redirect(url_for('view_budget'))
 
-    return render_template('set_budget.html', title='Set Budget', main_budget_form=main_budget_form, category_budget_form=category_budget_form)
-
-
+    # Default return statement to render the set_budget template
+    return render_template('set_budget.html', title='Set Budget', main_budget_form=main_budget_form,
+                           category_budget_form=category_budget_form, PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES)
 
 
 # ROUTE TO VIEW CURRENT BUDGET
@@ -572,18 +635,23 @@ def set_budget():
 # This route is designed to allow users to view their current budget.
 
 # Ensure that only logged-in users can access this route.
-@app.route('/view_budget')
+@app.route('/view_budgets')
 @login_required
-def view_budget():
-    budgets = Budget.query.filter_by(user_id=current_user.id).all()
-    return render_template('view_budget.html', budgets=budgets)
+def view_budgets():
+    user_id = current_user.id
 
+    # Fetch the main budget
+    main_budget = Budget.get_budget_for_category(user_id, "Main")
+
+    # Fetch category budgets
+    category_budgets = Budget.query.filter_by(user_id=user_id).filter(Budget.category != "Main").all()
+
+    return render_template('view_budgets.html', main_budget=main_budget, category_budgets=category_budgets)
 
 
 # ------------------------------------------REPORT-ROUTES----------------------------------------------------------
 
 # ROUTE FOR GENERATING REPORTS
-
 
 
 @app.route('/reports/spending_report')
@@ -637,117 +705,17 @@ def spending_over_time_report():
 @app.route('/reports/view_spending_trends')
 def view_spending_trends():
     user_id = current_user.id
-    logging.debug(f"Current user_id: {user_id}")
 
-    current_month = datetime.utcnow().month
-    current_year = datetime.utcnow().year
+    previous_month_name, previous_year, current_month_name, current_year = get_previous_and_current_month_names()
 
-    # Calculate the previous month and year
-    if current_month == 1:
-        previous_month = 12
-        previous_year = current_year - 1
-    else:
-        previous_month = current_month - 1
-        previous_year = current_year
+    trends = Expense.compute_spending_trends(user_id)
+    trend_messages = [
+        f"For {category} from {previous_month_name} {previous_year} to {current_month_name} {current_year}, the change in spending is {trends[category]:.2f}%"
+        for category, value in trends.items()
+    ]
 
-    # Fetch expenses for the current and previous month
-    current_month_expenses = Expense.query.filter_by(user_id=user_id).filter(
-        db.extract('month', Expense.date) == current_month,
-        db.extract('year', Expense.date) == current_year
-    ).all()
-
-    previous_month_expenses = Expense.query.filter_by(user_id=user_id).filter(
-        db.extract('month', Expense.date) == previous_month,
-        db.extract('year', Expense.date) == previous_year
-    ).all()
-
-    # Debugging: Print the fetched expenses
-    print("Current Month Expenses:", current_month_expenses)
-    print("Previous Month Expenses:", previous_month_expenses)
-
-    # Debugging: Print the categories
-    print("Categories:", PREDEFINED_CATEGORIES['expense'])
-
-    trends = {}
-    for category in PREDEFINED_CATEGORIES['expense']:
-        current_spending = sum(exp.amount for exp in current_month_expenses if exp.category == category)
-        previous_spending = sum(exp.amount for exp in previous_month_expenses if exp.category == category)
-
-        # Debugging: Print spending per category
-        print(f"Category: {category}, Current Spending: {current_spending}, Previous Spending: {previous_spending}")
-
-        if previous_spending != 0:
-            percent_change = ((current_spending - previous_spending) / previous_spending) * 100
-            trends[category] = percent_change
-
-    # Convert trends dictionary into a list of messages
-    messages = []
-    for category in PREDEFINED_CATEGORIES['expense']:
-        current_spending = sum(exp.amount for exp in current_month_expenses if exp.category == category)
-        previous_spending = sum(exp.amount for exp in previous_month_expenses if exp.category == category)
-
-        if current_spending > 0 and previous_spending == 0:
-            messages.append(f"You started spending on {category} this month.")
-        elif current_spending == 0 and previous_spending > 0:
-            messages.append(f"You stopped spending on {category} this month.")
-        elif current_spending == 0 and previous_spending == 0:
-            messages.append(f"No spending on {category} in both the current and previous month.")
-        else:
-            percent_change = ((current_spending - previous_spending) / previous_spending) * 100
-            if percent_change > 0:
-                messages.append(
-                    f"Spending on {category} increased by {percent_change:.2f}% compared to the previous month.")
-            elif percent_change < 0:
-                messages.append(
-                    f"Spending on {category} decreased by {-percent_change:.2f}% compared to the previous month.")
-            else:
-                messages.append(f"Spending on {category} remained the same compared to the previous month.")
-
-    logging.debug(f"Messages to display: {messages}")
-
-    return render_template('view_spending_trends.html', messages=messages)
-
-
-@app.route('/reports/view_spending_anomalies')
-@login_required
-def view_spending_anomalies():
-    user_id = current_user.id
-
-    current_month = datetime.utcnow().month
-    current_year = datetime.utcnow().year
-
-    # Fetch expenses for the current month
-    current_month_expenses = Expense.query.filter_by(user_id=user_id).filter(
-        db.extract('month', Expense.date) == current_month,
-        db.extract('year', Expense.date) == current_year
-    ).all()
-
-    # Calculate average spending for each category in previous months
-    previous_expenses = Expense.query.filter_by(user_id=user_id).filter(
-        or_(db.extract('month', Expense.date) != current_month,
-            db.extract('year', Expense.date) != current_year)
-    ).all()
-
-    average_expenses = {}
-    for category in PREDEFINED_CATEGORIES['expense']:
-        total_spending = sum(exp.amount for exp in previous_expenses if exp.category == category)
-        count = len([exp for exp in previous_expenses if exp.category == category])
-        average = total_spending / count if count != 0 else 0
-        average_expenses[category] = average
-
-    messages = []
-    for category in PREDEFINED_CATEGORIES['expense']:
-        current_spending = sum(exp.amount for exp in current_month_expenses if exp.category == category)
-        if average_expenses[category] != 0:
-            percent_change = ((current_spending - average_expenses[category]) / average_expenses[category]) * 100
-            if current_spending > 1.2 * average_expenses[category]:  # 20% more than average
-                messages.append(
-                    f"Spending on {category} increased by {percent_change:.2f}% compared to the average of previous months.")
-            elif current_spending < 0.8 * average_expenses[category]:  # 20% less than average
-                messages.append(
-                    f"Spending on {category} decreased by {-percent_change:.2f}% compared to the average of previous months.")
-
-    return render_template('view_spending_anomalies.html', messages=messages)
+    return render_template('view_spending_trends.html', trend_messages=trend_messages,
+                           PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES)
 
 
 @app.route('/reports/export')
@@ -772,6 +740,7 @@ def export_report():
     # Send the Excel file to the client as a download.
     return send_file(excel_file, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                      as_attachment=True, download_name="report.xlsx")
+
 
 # ------------------------------------------NOTIFICATIONS ROUTES----------------------------------------------------------
 
@@ -808,34 +777,20 @@ def send_email():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    current_month_expenses = Expense.get_monthly_expenses(current_user.id)
-    budget = Budget.query.filter_by(user_id=current_user.id).first()
+    user_id = current_user.id
 
-    if budget:
-        budget_amount = budget.amount
-        budget_progress = (current_month_expenses / budget_amount) * 100
-    else:
-        budget_amount = 0
-        budget_progress = 0
+    previous_month_name, previous_year, current_month_name, current_year = get_previous_and_current_month_names()
 
-    # Call the helper functions
+    trends = Expense.compute_spending_trends(user_id)
+    trend_messages = [
+        f"For {category} from {previous_month_name} {previous_year} to {current_month_name} {current_year}, the change in spending is {trends[category]:.2f}%"
+        for category, value in trends.items()
+    ]
 
-
-    # Process the trends to create user-friendly messages
-
-    # Process anomalies to create user-friendly messages
+    return render_template('dashboard.html', trend_messages=trend_messages, PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES)
 
 
-    return render_template('dashboard.html',
-                           current_month_expenses=current_month_expenses,
-                           budget_amount=budget_amount,
-                           budget_progress=budget_progress,)
-
-
-#=================================TESTING ROUTES=============================================
-
-
-
+# =================================TESTING ROUTES=============================================
 
 
 # -------------------------------------------MAIN METHOD---------------------------------------------------------------

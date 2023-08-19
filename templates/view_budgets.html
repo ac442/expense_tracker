@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h1>Your Budgets</h1>
+
+    <h2>Main Budget</h2>
+    {% if main_budget %}
+        <p>Your main budget amount is: ${{ main_budget.amount }}</p>
+    {% else %}
+        <p>You haven't set a main budget yet.</p>
+    {% endif %}
+
+    <h2>Category Budgets</h2>
+    {% if category_budgets %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    <th>Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for budget in category_budgets %}
+                    <tr>
+                        <td>{{ budget.category }}</td>
+                        <td>${{ budget.amount }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>You haven't set any category budgets yet.</p>
+    {% endif %}
+
+    <h2>Set New Budgets</h2>
+    <p><a href="{{ url_for('set_budget') }}">Click here</a> to set or modify your budgets.</p>
+</div>
+{% endblock %}

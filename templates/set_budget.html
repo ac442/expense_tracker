@@ -9,7 +9,9 @@
     <div>
         {{ main_budget_form.main_budget.label }}: {{ main_budget_form.main_budget() }}
     </div>
-    <input type="submit" value="Set Main Budget">
+    <div>
+        <a href="{{ url_for('set_budget') }}" onclick="this.parentNode.submit();">Set Main Budget</a>
+    </div>
 </form>
 
 <hr>
@@ -17,11 +19,13 @@
 <!-- Category Budget Form -->
 <form action="{{ url_for('set_budget') }}" method="post">
     {{ category_budget_form.hidden_tag() }}
-    {% for category, field in category_budget_form.budgets.items() %}
+    {% for category in PREDEFINED_CATEGORIES['expense'] %}
     <div>
-        {{ field.label }}: {{ field() }}
+        {{ category_budget_form[category|to_snake_case].label }}: {{ category_budget_form[category|to_snake_case]() }}
     </div>
     {% endfor %}
-    <input type="submit" value="Set Category Budgets">
+    <div>
+        <a href="{{ url_for('set_budget') }}" onclick="this.parentNode.submit();">Set Category Budgets</a>
+    </div>
 </form>
 {% endblock %}

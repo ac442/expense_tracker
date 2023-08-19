@@ -1,14 +1,15 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Spending Trends</title>
-</head>
-<body>
-    <h1>Spending Trends Report</h1>
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h1>Welcome to Budget Buddy!</h1>
+
+    <h2>Spending Trends</h2>
     <ul>
-        {% for message in messages %}
-        <li>{{ message }}</li>
+        {% for message in trend_messages %}
+            <li>{{ message }}</li>
         {% endfor %}
     </ul>
-</body>
-</html>
+
+</div>
+{% endblock %}
