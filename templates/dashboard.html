@@ -7,12 +7,13 @@
     <h2>Actions</h2>
     <p class="command"><a href="{{ url_for('add_expense') }}">Add Expense</a></p>
     <p class="command"><a href="{{ url_for('view_expenses') }}">View Expenses</a></p>
-    <p class="command"><a href="{{ url_for('set_budget') }}">Set Budget</a></p>
+    <p class="command"><a href="{{ url_for('set_main_budget') }}">Set Main Budget</a></p>
+    <p class="command"><a href="{{ url_for('set_category_budget') }}">Set Category Budget</a></p>
     <p class="command"><a href="{{ url_for('view_budgets') }}">View Budget</a></p>
     <p class="command"><a href="{{ url_for('logout') }}">Logout</a></p>
 
     <h2>Analytics and Reports</h2>
-    <p class="command"><a href="{{ url_for('view_spending_trends') }}">View Spending Trends</a></p>
+
 
     <h2>Your Budgets</h2>
     <table>
@@ -27,7 +28,7 @@
                 {% set budget = current_user.get_budget_for_category(category) %}
                 <tr>
                     <td>{{ category }}</td>
-                    <td>{{ budget.amount if budget else "No budget set" }}</td>
+                    <td>{{ budget.budget_amount if budget else "No budget set" }}</td>
                 </tr>
             {% endfor %}
         </tbody>

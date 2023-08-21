@@ -6,7 +6,11 @@
 
     <h2>Main Budget</h2>
     {% if main_budget %}
-        <p>Your main budget amount is: ${{ main_budget.amount }}</p>
+        <p>Your main budget amount is: ${{ main_budget.budget_amount }}</p>
+        <!-- Assuming you want to provide an option to delete the main budget too -->
+        <form action="{{ url_for('delete_budget', budget_id=main_budget.id) }}" method="post">
+            <input type="submit" value="Delete Main Budget" onclick="return confirm('Are you sure you want to delete the main budget?');">
+        </form>
     {% else %}
         <p>You haven't set a main budget yet.</p>
     {% endif %}
@@ -18,6 +22,7 @@
                 <tr>
                     <th>Category</th>
                     <th>Amount</th>
+                    <th>Action</th>  <!-- New column header for the delete action -->
                 </tr>
             </thead>
             <tbody>
@@ -25,6 +30,12 @@
                     <tr>
                         <td>{{ budget.category }}</td>
                         <td>${{ budget.amount }}</td>
+                        <td>
+                            <!-- Form for deletion -->
+                            <form action="{{ url_for('delete_budget', budget_id=budget.id) }}" method="post">
+                                <input type="submit" value="Delete" onclick="return confirm('Are you sure you want to delete this budget for {{ budget.category }}?');">
+                            </form>
+                        </td>
                     </tr>
                 {% endfor %}
             </tbody>
@@ -33,7 +44,4 @@
         <p>You haven't set any category budgets yet.</p>
     {% endif %}
 
-    <h2>Set New Budgets</h2>
-    <p><a href="{{ url_for('set_budget') }}">Click here</a> to set or modify your budgets.</p>
-</div>
 {% endblock %}

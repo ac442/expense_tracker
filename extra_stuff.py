@@ -20,14 +20,14 @@ def view_spending_anomalies():
 
     average_expenses = {}
     for category in PREDEFINED_CATEGORIES['expense']:
-        total_spending = sum(exp.amount for exp in previous_expenses if exp.category == category)
-        count = len([exp for exp in previous_expenses if exp.category == category])
+        total_spending = sum(exp.budget_amount for exp in previous_expenses if exp.budget_type == category)
+        count = len([exp for exp in previous_expenses if exp.budget_type == category])
         average = total_spending / count if count != 0 else 0
         average_expenses[category] = average
 
     messages = []
     for category in PREDEFINED_CATEGORIES['expense']:
-        current_spending = sum(exp.amount for exp in current_month_expenses if exp.category == category)
+        current_spending = sum(exp.budget_amount for exp in current_month_expenses if exp.budget_type == category)
         if average_expenses[category] != 0:
             percent_change = ((current_spending - average_expenses[category]) / average_expenses[category]) * 100
             if current_spending > 1.2 * average_expenses[category]:  # 20% more than average

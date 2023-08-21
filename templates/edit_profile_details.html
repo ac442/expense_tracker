@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}
+Edit Profile Details
+{% endblock %}
+
+{% block content %}
+<h2>Edit Profile Details</h2>
+
+<!-- Flash message for successful update -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<!-- Profile Edit Form -->
+<form action="{{ url_for('edit_profile_details') }}" method="post">
+    {{ form.hidden_tag() }}
+    <div class="form-group">
+        <label for="firstname">First Name</label>
+        {{ form.firstname(class="form-control") }} <!-- Updated field name here -->
+    </div>
+    <div class="form-group">
+        <label for="lastname">Last Name</label>
+        {{ form.lastname(class="form-control") }} <!-- Updated field name here -->
+    </div>
+    <div class="form-group">
+        <label for="email">Email</label>
+        {{ form.email(class="form-control") }}
+    </div>
+    <div class="form-group">
+        {{ form.submit(class="btn btn-primary") }}
+    </div>
+</form>
+{% endblock %}

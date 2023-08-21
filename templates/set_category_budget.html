@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Set Category Budgets</h2>
+<form method="post">
+    {{ category_budget_form.hidden_tag() }}
+    {% for category in PREDEFINED_CATEGORIES['expense'] %}
+        <div class="form-group">
+            <label for="{{ category_budget_form[category|to_snake_case].id }}">{{ category }}</label>
+            {{ category_budget_form[category|to_snake_case](class="form-control") }}
+        </div>
+    {% endfor %}
+    <div class="form-group">
+        {{ category_budget_form.submit(class="btn btn-primary") }}
+    </div>
+</form>
+{% endblock %}
