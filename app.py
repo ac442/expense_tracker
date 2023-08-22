@@ -5,7 +5,7 @@ from io import BytesIO
 from flask import render_template, flash, redirect, url_for
 from flask_login import current_user, login_required
 from werkzeug.security import generate_password_hash, check_password_hash
-import matplotlib.pyplot as plt
+from collections import defaultdict
 import pandas as pd
 from flask import Flask, flash, redirect, render_template, url_for, request, abort, send_file
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
@@ -15,6 +15,8 @@ from flask_wtf import FlaskForm
 from werkzeug.security import check_password_hash, generate_password_hash
 from wtforms import FloatField, PasswordField, SelectField, StringField, SubmitField
 from wtforms.validators import DataRequired, Email, EqualTo, Length, ValidationError
+import matplotlib.pyplot as plt
+import io
 
 app = Flask(__name__)
 
@@ -47,7 +49,7 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 
 
-# ============================================BASIC UTILITY FUNCTIONS===================================================
+# ============================================HELPER FUNCTIONS===================================================
 
 @app.cli.command("initdb")
 def initdb_command():
@@ -60,6 +62,9 @@ def unauthorized():
     flash('You need to login first.')
     return redirect(url_for('login'))
 
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 @app.context_processor
 def inject_notifications_count():
@@ -73,6 +78,10 @@ def inject_notifications_count():
 def to_snake_case(string):
     return string.lower().replace(' & ', '_and_').replace(' ', '_')
 
+def notify_user(user, message):
+    notification = Notification(message=message, user_id=user.id)
+    db.session.add(notification)
+    db.session.commit()
 
 def get_previous_and_current_month_names():
     current_month_num = datetime.utcnow().month
@@ -92,6 +101,61 @@ def get_previous_and_current_month_names():
 
     return previous_month_name, previous_year, current_month_name, current_year
 
+def generate_spending_chart(data):
+    # Set the figure size for the chart.
+    plt.figure(figsize=(10, 6))
+    plt.pie(data.values(), labels=data.keys(), autopct='%1.1f%%')
+    plt.title("Spending by Category")
+    buf = BytesIO()
+    plt.savefig(buf, format="png")
+    buf.seek(0)
+    return buf
+
+def generate_line_graph(data):
+    dates = list(data.keys())
+    amounts = list(data.values())
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(dates, amounts, marker='o')
+    plt.title('Spending Over Time')
+    plt.xlabel('Date')
+    plt.ylabel('Total Amount')
+    plt.grid(True)
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+
+    return buf
+
+def generate_spending_over_time(data):
+    plt.figure(figsize=(12, 7))
+    dates = list(data.keys())
+    plt.plot(dates, list(data.values()))
+    plt.title("Spending over Time")
+    buf = BytesIO()
+    plt.savefig(buf, format="png")
+    buf.seek(0)
+    return buf
+
+
+def export_to_excel(data):
+    df = pd.DataFrame(data)
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name="Expenses", index=False)
+    output.seek(0)
+    return output
+
+def create_category_budget_form(categories):
+    class DynamicCategoryBudgetForm(FlaskForm):
+        submit = SubmitField('Set Category Budgets')
+
+    for category in categories:
+        field_name = to_snake_case(category)
+        setattr(DynamicCategoryBudgetForm, field_name, FloatField(category))
+
+    return DynamicCategoryBudgetForm()
 
 # -----------------------------------DATA MODELS SECTION----------------------------------------------------------------
 
@@ -134,6 +198,49 @@ class Budget(db.Model):
         print(f"Budget for user_id {user_id} and category {category}: {budget}")
         return budget
 
+class BudgetService:
+    @staticmethod
+    def check_budget_for_user(user):
+        for category in PREDEFINED_CATEGORIES['expense']:
+            total_expense_for_category = sum(exp.budget_amount for exp in user.expenses if exp.budget_type == category)
+            budget_for_category = Budget.query.filter_by(user_id=user.id, category=category).first()
+            if budget_for_category and total_expense_for_category >= budget_for_category.budget_amount:
+                notify_user(user, f"Your spending in {category} has reached or exceeded your set budget.")
+
+    @staticmethod
+    def check_large_expense_for_user(user):
+        LARGE_EXPENSE_THRESHOLD = 1000  # or any other threshold
+        for expense in user.expenses:
+            if expense.budget_amount >= LARGE_EXPENSE_THRESHOLD:
+                notify_user(user, f"You have a large expense of {expense.budget_amount} for {expense.budget_type}.")
+
+    @staticmethod
+    def check_recurring_expenses_for_user(user):
+        current_month = datetime.utcnow().month
+        current_year = datetime.utcnow().year
+
+        monthly_expenses = Expense.query.filter_by(user_id=user.id).filter(
+            db.extract('month', Expense.date) == current_month,
+            db.extract('year', Expense.date) == current_year
+        ).all()
+
+        source_counts = {}
+        for expense in monthly_expenses:
+            if expense.budget_type in source_counts:
+                source_counts[expense.budget_type] += 1
+            else:
+                source_counts[expense.budget_type] = 1
+        for source, count in source_counts.items():
+            if count > 1:
+                notify_user(user, f"Reminder: You have multiple expenses for '{source}' this month.")
+
+    @classmethod
+    def check_all_alerts_for_user(cls, user):
+        cls.check_budget_for_user(user)
+        cls.check_large_expense_for_user(user)
+        cls.check_recurring_expenses_for_user(user)
+
+
 class Expense(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
@@ -169,8 +276,8 @@ class Expense(db.Model):
 
         trends = {}
         for category in PREDEFINED_CATEGORIES['expense']:
-            current_spending = sum(exp.budget_amount for exp in current_month_expenses if exp.budget_type == category)
-            previous_spending = sum(exp.budget_amount for exp in previous_month_expenses if exp.budget_type == category)
+            current_spending = sum(exp.amount for exp in current_month_expenses if exp.category == category)
+            previous_spending = sum(exp.amount for exp in previous_month_expenses if exp.category == category)
 
             if previous_spending != 0:
                 percent_change = ((current_spending - previous_spending) / previous_spending) * 100
@@ -178,9 +285,12 @@ class Expense(db.Model):
 
         return trends
 
-
-
-
+    @classmethod
+    def collect_expense_data(cls, expenses):
+        data = defaultdict(float)  # Default value of 0.0 for each category
+        for expense in expenses:
+            data[expense.category] += expense.amount
+        return dict(data)
 
 class Notification(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -189,61 +299,10 @@ class Notification(db.Model):
     date_created = db.Column(db.DateTime, index=True, default=datetime.utcnow)
     is_read = db.Column(db.Boolean, default=False)
     user = db.relationship('User', back_populates='notifications', lazy=True)
-
-
-def check_budget():
-    users = User.query.all()
-    for user in users:
-        for category in PREDEFINED_CATEGORIES['expense']:
-            total_expense_for_category = sum(exp.budget_amount for exp in user.expenses if exp.budget_type == category)
-            budget_for_category = Budget.query.filter_by(user_id=user.id, category=category).first()
-            if budget_for_category and total_expense_for_category >= budget_for_category.budget_amount:
-                notify_user(user, f"Your spending in {category} has reached or exceeded your set budget.")
-
-
-def check_large_expense():
-    LARGE_EXPENSE_THRESHOLD = 1000  # or any other threshold
-    users = User.query.all()
-    for user in users:
-        for expense in user.expenses:
-            if expense.budget_amount >= LARGE_EXPENSE_THRESHOLD:
-                notify_user(user, f"You have a large expense of {expense.budget_amount} for {expense.budget_type}.")
-
-
-def check_recurring_expenses():
-    current_month = datetime.utcnow().month
-    current_year = datetime.utcnow().year
-    users = User.query.all()
-
-    for user in users:
-        monthly_expenses = Expense.query.filter_by(user_id=user.id).filter(
-            db.extract('month', Expense.date) == current_month,
-            db.extract('year', Expense.date) == current_year
-        ).all()
-        source_counts = {}
-        for expense in monthly_expenses:
-            if expense.budget_type in source_counts:
-                source_counts[expense.budget_type] += 1
-            else:
-                source_counts[expense.budget_type] = 1
-        for source, count in source_counts.items():
-            if count > 1:
-                notify_user(user, f"Reminder: You have multiple expenses for '{source}' this month.")
-
-
-def check_alerts():
-    check_budget()
-    check_large_expense()
-    check_recurring_expenses()
-    flash('Checked for alerts and notifications.')
-    return redirect(url_for('dashboard'))  # Redirect to wherever you want the user to see after this.
-
-
-def notify_user(user, message):
-    notification = Notification(message=message, user_id=user.id)
-    db.session.add(notification)
-    db.session.commit()
-
+@classmethod
+def has_unread_notifications(user_id):
+    count = Notification.query.filter_by(user_id=user_id, is_read=False).count()
+    return count > 0
 
 # ---------------------------------------------FORMS SECTION------------------------------------------------------------
 
@@ -323,63 +382,7 @@ class SingleCategoryBudgetForm(FlaskForm):
         amount = FloatField('Budget Amount', validators=[DataRequired()])
         submit = SubmitField('Update Budget')
 
-
-def create_category_budget_form(categories):
-    class DynamicCategoryBudgetForm(FlaskForm):
-        submit = SubmitField('Set Category Budgets')
-
-    for category in categories:
-        field_name = to_snake_case(category)
-        setattr(DynamicCategoryBudgetForm, field_name, FloatField(category))
-
-    return DynamicCategoryBudgetForm()
-
-
-# ==============================================VISUALIZATION AND EXPORT FUNCTIONS=========================================================
-
-# Function to generate a pie chart visualizing spending by category.
-def generate_spending_chart(data):
-    # Set the figure size for the chart.
-    plt.figure(figsize=(10, 6))
-    plt.pie(data.values(), labels=data.keys(), autopct='%1.1f%%')
-    plt.title("Spending by Category")
-    buf = BytesIO()
-    plt.savefig(buf, format="png")
-    buf.seek(0)
-    return buf
-
-
-def generate_spending_over_time(data):
-    plt.figure(figsize=(12, 7))
-    dates = list(data.keys())
-    plt.plot(dates, list(data.values()))
-    plt.title("Spending over Time")
-    buf = BytesIO()
-    plt.savefig(buf, format="png")
-    buf.seek(0)
-    return buf
-
-
-def export_to_excel(data):
-    df = pd.DataFrame(data)
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name="Expenses", index=False)
-    output.seek(0)
-    return output
-
-
-# -------------------------------------------USER AUTHENTICATION ROUTES-----------------------------------------------
-# Define the routes for user authentication (registration, login, logout).
-
-
-# Assuming the User model and other necessary configurations have been defined above...
-
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
-
-
+#===============================================ROUTES SECTION=========================================================
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -407,10 +410,6 @@ def register():
         return redirect(url_for('login'))  # Assuming you have a 'login' route
 
     return render_template('register.html')
-
-
-
-
 
 @app.route('/change_password', methods=['GET', 'POST'])
 @login_required
@@ -500,7 +499,7 @@ def add_expense():
             flash('Please enter a positive amount for the expense.')
             return render_template('add_expense.html', form=form)
         # Create a new expense object with the form data.
-        expense = Expense(source=form.source.data, amount=form.amount.data, description=form.description.data,
+        expense = Expense(category=form.source.data, amount=form.amount.data, description=form.description.data,
                           user_id=current_user.id)
 
         # Try to save the new expense entry to the database.
@@ -510,7 +509,7 @@ def add_expense():
             flash('Expense added successfully!')
 
             # Call check_budget after successfully adding the expense
-            check_budget()
+            BudgetService.check_budget_for_user(current_user)
 
             return redirect(url_for('view_expenses'))
 
@@ -650,7 +649,7 @@ def set_category_budget():
     form = create_category_budget_form(PREDEFINED_CATEGORIES['expense'])
 
     if form.validate_on_submit():
-        logging.debug('Processing category budget form submission.')
+        logging.debug('Form validated successfully. Processing category budget form submission.')
 
         for category, field in form._fields.items():
             if category == "submit":  # Skip the submit field
@@ -662,7 +661,8 @@ def set_category_budget():
             if not budget_for_category:
                 logging.debug(
                     f'No budget found for user: {current_user.id} and category: {category}. Creating a new budget.')
-                budget_entry = Budget(user_id=current_user.id, category=category, amount=field.data)
+                budget_entry = Budget(user_id=current_user.id, category=category, budget_amount=field.data)
+
                 db.session.add(budget_entry)
             else:
                 logging.debug(
@@ -672,12 +672,11 @@ def set_category_budget():
             db.session.commit()
             logging.debug(f'Category budget for {category} updated/added successfully.')
 
+    else:
+        logging.warning(f'Form validation failed. Errors: {form.errors}')  # Log form validation errors
+
     return render_template('set_category_budget.html', title='Set Category Budget', category_budget_form=form, PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES)
 
-
-# ROUTE TO VIEW CURRENT BUDGET
-
-# This route is designed to allow users to view their current budget.
 
 # Ensure that only logged-in users can access this route.
 @app.route('/view_budgets')
@@ -727,10 +726,6 @@ def edit_budget(budget_id):
             form.amount.data = budget.budget_amount
         return render_template('edit_category_budget.html', form=form, category=budget.budget_type)
 
-
-
-
-
 @app.route('/delete_budget/<int:budget_id>', methods=['POST'])
 @login_required
 def delete_budget(budget_id):
@@ -749,6 +744,120 @@ def delete_budget(budget_id):
 
 
 # ------------------------------------------REPORT-ROUTES----------------------------------------------------------
+# ROUTE FOR GENERATING REPORTS
+
+
+@app.route('/reports/spending_by_category')
+# @login_required
+def spending_report():
+    try:
+        # 1. Data Collection
+        expenses = Expense.query.filter_by(user_id=current_user.id).all()
+        category_data = Expense.collect_expense_data(expenses)
+
+        # If no expenses found, render a message to the user
+        if not category_data:
+            return render_template('no_expenses.html')  # This assumes you have a template to display a message
+
+        # 2. Generate the Chart
+        chart_path = generate_spending_chart(category_data)
+
+        if not chart_path:
+            logging.error("Chart generation failed.")
+            return "Chart generation failed.", 500
+
+        # 3. Send the generated chart as an image to the client.
+        return send_file(chart_path, mimetype="image/png")
+
+    except Exception as e:
+        logging.error(f"Error in spending_report route: {e}")
+        return str(e), 500
+
+
+from base64 import b64encode
+
+@app.route('/reports/spending_over_time')
+@login_required
+def spending_over_time_report():
+    # Query the database for expenses over time for the logged-in user.
+    expenses = Expense.query.filter_by(user_id=current_user.id).order_by(Expense.date.asc()).all()
+
+    # Process the expenses into a dictionary where keys are dates and values are cumulative expenses.
+    data = {}
+    total = 0
+    for expense in expenses:
+        total += expense.amount
+        data[expense.date] = total
+
+    # Generate the line graph and encode it for embedding in HTML
+    img = generate_line_graph(data)
+    img_str = b64encode(img.getvalue()).decode('utf-8')
+
+    return render_template('spending_over_time.html', image_data=img_str)
+
+
+@app.route('/reports/view_spending_trends')
+def view_spending_trends():
+    user_id = current_user.id
+
+    previous_month_name, previous_year, current_month_name, current_year = get_previous_and_current_month_names()
+
+    trends = Expense.compute_spending_trends(user_id)
+    trend_messages = [
+        f"For {category} from {previous_month_name} {previous_year} to {current_month_name} {current_year}, the change in spending is {trends[category]:.2f}%"
+        for category, value in trends.items()
+    ]
+
+    return render_template('view_spending_trends.html', trend_messages=trend_messages,
+                           PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES)
+
+
+@app.route('/reports/export')
+@login_required
+def export_report():
+    """Export user's financial data to an Excel file."""
+
+    # Fetch user's expenses from the database.
+    expenses = Expense.query.filter_by(user_id=current_user.id).all()
+
+    # Populate the data dictionary with actual data from the database.
+    data = {
+        "Description": [expense.description for expense in expenses],  # List comprehension
+        "Amount": [expense.amount for expense in expenses],
+        "Date": [expense.date for expense in expenses],
+        "Expense Category": [expense.category for expense in expenses],
+    }
+
+    # Generate the Excel file in-memory.
+    excel_file = export_to_excel(data)
+
+    # Send the Excel file to the client as a download.
+    return send_file(excel_file, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     as_attachment=True, download_name="report.xlsx")
+
+
+# ------------------------------------------NOTIFICATIONS ROUTES----------------------------------------------------------
+
+@app.route('/notifications')
+@login_required
+def view_notifications():
+    user_id = current_user.id
+    notifications = Notification.query.filter_by(user_id=user_id, is_read=False).all()
+    return render_template('notifications.html', notifications=notifications)
+
+
+@app.route('/notifications/mark_all_as_read', methods=['POST'])
+@login_required
+def mark_all_as_read():
+    # Fetch all unread notifications for the currently logged-in user and mark them as read.
+    notifications = Notification.query.filter_by(user_id=current_user.id, is_read=False).all()
+    for notification in notifications:
+        notification.is_read = True
+    db.session.commit()
+    flash('All notifications marked as read.')
+    return redirect(url_for('view_notifications'))
+
+
 
 
 
@@ -773,6 +882,7 @@ def dashboard():
 
 
 # =================================TESTING ROUTES=============================================
+
 
 
 # -------------------------------------------MAIN METHOD---------------------------------------------------------------

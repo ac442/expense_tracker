@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Spending Over Time</h2>
+
+<img src="data:image/png;base64,{{ image_data }}" alt="Spending Over Time">
+
+<br>
+<a href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+{% endblock %}
