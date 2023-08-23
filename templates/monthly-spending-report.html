@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h1>{{ title }}</h1>
+    <p>Here's a visual representation of your spending by category for this month:</p>
+    <img src="data:image/png;base64,{{ image_data }}" alt="Monthly Spending by Category">
+</div>
+{% endblock %}

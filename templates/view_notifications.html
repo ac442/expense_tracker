@@ -1,13 +1,31 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h2>Notifications</h2>
-    <ul>
+<div class="container">
+    <h2>View Notifications</h2>
+
+    <!-- Displaying the notifications -->
     {% for notification in notifications %}
-        <li>
-            {{ notification.message }}
-            <small>Received: {{ notification.date_created.strftime('%Y-%m-%d %H:%M:%S') }}</small>
-        </li>
+        <div class="notification">
+            <p>{{ notification.message }}</p>
+            <form action="{{ url_for('mark_notification_as_read', notification_id=notification.id) }}" method="post">
+                <button type="submit">Mark as Read</button>
+            </form>
+        </div>
     {% endfor %}
-    </ul>
+
+    <h2>Set Category Budgets</h2>
+    <form method="post">
+        {% for category in PREDEFINED_CATEGORIES['expense'] %}
+            <div class="form-group">
+                <label for="{{ category }}">{{ category }}</label>
+                <!-- Assuming you have a form field for each category, adjust as needed -->
+                <input type="text" name="{{ category }}" class="form-control" id="{{ category }}" placeholder="Enter budget for {{ category }}">
+            </div>
+        {% endfor %}
+        <div class="form-group">
+            <button type="submit" class="btn btn-primary">Submit</button>
+        </div>
+    </form>
+</div>
 {% endblock %}

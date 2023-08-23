@@ -4,42 +4,37 @@
 <div class="container">
     <h1>Welcome to Budget Buddy!</h1>
 
+    <!-- Display unread notification count -->
+    {% if unread_notification_count > 0 %}
+        <p>You have {{ unread_notification_count }} unread notifications. <a href="{{ url_for('view_notifications') }}">View them here</a>.</p>
+    {% endif %}
+
     <h2>Actions</h2>
-    <p class="command"><a href="{{ url_for('add_expense') }}">Add Expense</a></p>
-    <p class="command"><a href="{{ url_for('view_expenses') }}">View Expenses</a></p>
-    <p class="command"><a href="{{ url_for('set_main_budget') }}">Set Main Budget</a></p>
-    <p class="command"><a href="{{ url_for('set_category_budget') }}">Set Category Budget</a></p>
-    <p class="command"><a href="{{ url_for('view_budgets') }}">View Budget</a></p>
-    <p class="command"><a href="{{ url_for('logout') }}">Logout</a></p>
+    <ul>
+        <li><a href="{{ url_for('profile') }}">View Profile</a></li>
+        <li><a href="{{ url_for('edit_profile_details') }}">Edit Profile Details</a></li>
+        <li><a href="{{ url_for('change_password') }}">Change Password</a></li>
+        <li><a href="{{ url_for('add_expense') }}">Add Expense</a></li>
+        <li><a href="{{ url_for('view_expenses') }}">View Expenses</a></li>
+        <li><a href="{{ url_for('add_category_budget') }}">Add Category Budget</a></li>
+        <li><a href="{{ url_for('view_category_budgets') }}">View Category Budgets</a></li>
+        <li><a href="{{ url_for('logout') }}">Logout</a></li>
+    </ul>
 
     <h2>Analytics and Reports</h2>
-
-
-    <h2>Your Budgets</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Category</th>
-                <th>Budget Amount</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for category in PREDEFINED_CATEGORIES['expense'] %}
-                {% set budget = current_user.get_budget_for_category(category) %}
-                <tr>
-                    <td>{{ category }}</td>
-                    <td>{{ budget.budget_amount if budget else "No budget set" }}</td>
-                </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-
-    <h2>Spending Trends</h2>
+    <ul>
+        <li><a href="{{ url_for('monthly_spending_report') }}">View Monthly Spending by Category</a></li>
+        <li><a href="{{ url_for('yearly_spending_report') }}">View Yearly Spending by Category</a></li>
+        <li><a href="{{ url_for('spending_over_time_report') }}">View Spending Over Time</a></li>
+        <li><a href="{{ url_for('monthly_spending_trends') }}">View Monthly Spending Trends</a></li>
+        <li><a href="{{ url_for('yearly_spending_trends') }}">View Yearly Spending Trends</a></li>
+        <li><a href="{{ url_for('export_report') }}">Export Expenses Report</a></li>
+    </ul>
+    <h3>Spending Trends</h3>
     <ul>
         {% for message in trend_messages %}
             <li>{{ message }}</li>
         {% endfor %}
     </ul>
-
 </div>
 {% endblock %}

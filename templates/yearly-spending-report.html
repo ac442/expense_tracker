@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h1>Yearly Spending by Category</h1>
+    <p>Here's a visual representation of your spending by category for the entire year:</p>
+    <img src="data:image/png;base64,{{ image_data }}" alt="Yearly Spending by Category">
+    <br>
+    <a href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+</div>
+{% endblock %}

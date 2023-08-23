@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h2>Monthly Spending Trends</h2>
+    <img src="{{ img_data }}" alt="Monthly Spending Trends" style="width: 100%; max-width: 600px; display: block; margin: 20px auto;">
+
+    <ul>
+        {% for message in trend_messages %}
+            <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
+
+    <h3>Categories Breakdown:</h3>
+    <ul>
+        {% for category in PREDEFINED_CATEGORIES %}
+            <li>{{ category }}</li>
+        {% endfor %}
+    </ul>
+
+    <a href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+{% endblock %}
