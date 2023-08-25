@@ -10,12 +10,28 @@
         {% endfor %}
     </ul>
 
-    <h3>Categories Breakdown:</h3>
-    <ul>
-        {% for category in PREDEFINED_CATEGORIES %}
-            <li>{{ category }}</li>
-        {% endfor %}
-    </ul>
+    <button id="toggleCategories">Toggle Categories Breakdown</button>
+
+    <div id="categoriesSection">
+        <h3>Categories Breakdown:</h3>
+        <ul>
+            {% for category in PREDEFINED_CATEGORIES %}
+                <li>{{ category }}</li>
+            {% endfor %}
+        </ul>
+    </div>
 
     <a href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+
+    <!-- Adding minimal JavaScript -->
+    <script>
+        document.getElementById('toggleCategories').addEventListener('click', function() {
+            var categoriesSection = document.getElementById('categoriesSection');
+            if (categoriesSection.style.display === "none") {
+                categoriesSection.style.display = "block";
+            } else {
+                categoriesSection.style.display = "none";
+            }
+        });
+    </script>
 {% endblock %}

@@ -1,0 +1,12 @@
+<table>
+    <tr>
+        <th>Category</th>
+        <th>Frequency</th>
+    </tr>
+    {% for category, freq in most_frequent_categories %}
+    <tr>
+        <td>{{ category }}</td>
+        <td>{{ freq }}</td>
+    </tr>
+    {% endfor %}
+</table>

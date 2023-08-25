@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Potential Savings Opportunities</h2>
+<ul>
+    {% for category, amount in opportunities.items() %}
+    <li>You can potentially save {{ amount }} in the category "{{ category }}"</li>
+    {% endfor %}
+</ul>
+{% endblock %}

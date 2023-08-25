@@ -30,13 +30,13 @@ def generate_fake_data():
     # Generate data for the past 60 days to add more variability
     for _ in range(60):
         date = datetime.now() - timedelta(days=random.randint(0, 59))
-        source = random.choice(list(categories.keys()))
-        min_amount, max_amount = categories[source]
+        category = random.choice(list(categories.keys()))
+        min_amount, max_amount = categories[category]
         amount = random.randint(min_amount, max_amount)
         description = random.choice(descriptions)
 
         # Create a new expense entry
-        expense = Expense(date=date, amount=amount, source=source, description=description, user_id=current_user.id)
+        expense = Expense(date=date, amount=amount, category=category, description=description, user_id=current_user.id)
         db.session.add(expense)
 
     db.session.commit()

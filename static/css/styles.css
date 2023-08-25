@@ -1,41 +1,56 @@
-/* Reset default styles */
-body, h1, p, li {
+/* Reset some default styles */
+body, h1, h2, p, li, a, button, input, textarea {
     margin: 0;
     padding: 0;
+    border: none;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 18px; /* Increased font size */
+    outline: none;
 }
 
 body {
-    background-color: #f4f4f4; /* Light gray background */
-    color: #333333; /* Almost black text */
-    font-family: Arial, sans-serif;
-    font-size: 16px;
-    line-height: 1.4;
+    background-color: #000; /* Black background for terminal feel */
+    color: #33FF33; /* Softer green text */
     padding: 20px;
+    overflow-x: hidden;
 }
 
-a {
-    color: #0066cc; /* Blue text */
-    text-decoration: underline;
-    transition: color 0.3s ease; /* Smooth color transition */
-}
-
-a:hover {
-    color: #004499; /* Darker blue on hover */
-}
-
-.button {
-    background-color: #0066cc; /* Blue button background */
-    color: #ffffff; /* White text */
-    border: none;
-    padding: 10px 20px;
+a, button {
+    background: #333333; /* Dark grey background for better readability */
+    color: #33FF33; /* Softer green text */
+    padding: 5px 10px;
+    text-decoration: none;
     cursor: pointer;
-    font-size: 14px;
-    transition: background-color 0.3s ease; /* Smooth background transition */
+    display: inline-block;
+    transition: background 0.3s;
 }
 
-.button:hover {
-    background-color: #004499; /* Darker blue on hover */
+a:hover, button:hover {
+    background: #222222; /* Even darker grey on hover */
+}
+
+.header, .navbar {
+    display: none; /* Hiding header and navbar for terminal feel */
+}
+
+.content {
+    max-width: 800px;
+    margin: 0 auto;
+    border: 2px solid #33FF33;
+    padding: 10px;
 }
 
 input, textarea {
-    background-color: #ffffff;}
+    background-color: #000; /* Black input fields */
+    color: #33FF33; /* Softer green text */
+    padding: 5px;
+    border: 1px solid #33FF33;
+    width: 100%;
+}
+
+/* Emulate terminal prompt */
+.content:before {
+    content: "user@web-terminal:~$ ";
+    display: block;
+    margin-bottom: 10px;
+}

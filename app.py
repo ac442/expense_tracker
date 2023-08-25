@@ -18,6 +18,10 @@ from wtforms.validators import Optional
 from base64 import b64encode
 import base64
 from dateutil.relativedelta import relativedelta
+from collections import Counter
+from flask import flash, redirect, render_template, request, url_for
+import numpy as np
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.DEBUG, format='[%(asctime)s] %(levelname)s - %(message)s')
@@ -28,12 +32,10 @@ app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DATABASE_PATH}'
 app.config['WTF_CSRF_ENABLED'] = False
 db = SQLAlchemy(app)
 flask_migrate = Migrate(app, db)
-PREDEFINED_CATEGORIES = {
-    'expense': ["Housing & Utilities", "Food & Dining", "Transport",
+PREDEFINED_CATEGORIES = {'expense': ["Housing & Utilities", "Food & Dining", "Transport",
                 "Personal Care & Lifestyle", "Savings", "Investments",
                 "Personal Debt", "Taxes", "Family & Relationships",
-                "Education & Professional Services", "Miscellaneous"]
-}
+                "Education & Professional Services", "Miscellaneous"]}
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
@@ -73,6 +75,84 @@ def get_previous_and_current_month_names():
     current_month_name = month_names[current_date.month - 1]
     previous_month_name = month_names[previous_date.month - 1]
     return previous_month_name, previous_date.year, current_month_name, current_date.year
+
+def add_and_commit(db_object):
+    try:
+        db.session.add(db_object)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"An error occurred while committing to the database: {e}")
+
+def get_current_month_and_year():
+    current_datetime = datetime.utcnow()
+    return current_datetime.month, current_datetime.year
+
+
+def get_budget_for_month(user, category):
+    current_month = datetime.utcnow().month
+    current_year = datetime.utcnow().year
+    existing_budget = Budget.query.filter_by(
+        user_id=user.id,
+        category=category,
+        month=current_month,
+        year=current_year
+    ).first()
+    return existing_budget.budget_amount if existing_budget else 0
+def get_budget_vs_actual(user_id, month, year):
+    categories = PREDEFINED_CATEGORIES['expense']
+    budget_vs_actual = {}
+    for category in categories:
+        budget_amount = get_budget_for_month(current_user, category)
+        expenses = Expense.query.filter_by(user_id=user_id, category=category).filter(
+            db.extract('month', Expense.date) == month,
+            db.extract('year', Expense.date) == year).all()
+        actual_expense = sum(expense.amount for expense in expenses)
+        budget_vs_actual[category] = {"budget": budget_amount, "actual": actual_expense}
+    return budget_vs_actual
+def generate_budget_vs_actual_chart(data):
+    categories = list(data.keys())
+    budget_values = [entry["budget"] for entry in data.values()]
+    actual_values = [entry["actual"] for entry in data.values()]
+    width = 0.35  # the width of the bars
+    fig, ax = plt.subplots(figsize=(12, 7))
+    ind = np.arange(len(categories))  # the label locations
+    p1 = ax.bar(ind - width / 2, budget_values, width, label='Budget', color='blue')
+    p2 = ax.bar(ind + width / 2, actual_values, width, label='Actual', color='orange')
+    ax.set_title('Budget vs Actual Expenses by Category')
+    ax.set_xticks(ind)
+    ax.set_xticklabels(categories, rotation=45)
+    ax.legend()
+    for bar in p1:
+        yval = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2, yval + 5, round(yval, 2), ha='center', va='bottom', color='black',
+                size=8)
+    for bar in p2:
+        yval = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2, yval + 5, round(yval, 2), ha='center', va='bottom', color='black',
+                size=8)
+    buf = io.BytesIO()
+    plt.tight_layout()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}"
+def set_category_budget_for_month(user, category, amount):
+    current_month = datetime.utcnow().month
+    current_year = datetime.utcnow().year
+    existing_budget = Budget.query.filter_by(
+        user_id=user.id,
+        category=category,
+        month=current_month,
+        year=current_year
+    ).first()
+    if existing_budget:
+        existing_budget.budget_amount = amount
+    else:
+        budget_entry = Budget(
+            user_id=user.id, category=category,
+            budget_amount=amount
+        )
+        db.session.add(budget_entry)
 def get_cumulative_spending_over_time(user_id):
     expenses = Expense.query.filter_by(user_id=user_id).order_by(Expense.date.asc()).all()
     data = {}
@@ -89,12 +169,82 @@ def generate_spending_chart(data):
     plt.savefig(buf, format="png")
     buf.seek(0)
     return buf
-def generate_line_graph(data):
+def calculate_amount_spent(user_id, category):
+    current_month = datetime.utcnow().month
+    current_year = datetime.utcnow().year
+    expenses = Expense.query.filter_by(user_id=user_id, category=category).filter(
+        db.extract('month', Expense.date) == current_month,
+        db.extract('year', Expense.date) == current_year).all()
+    return sum(expense.amount for expense in expenses)
+def check_budget_limit(user_id, category, amount_spent):
+    current_month = datetime.utcnow().month
+    current_year = datetime.utcnow().year
+
+    budget = Budget.query.filter_by(
+        user_id=user_id,
+        category=category,
+        month=current_month,
+        year=current_year
+    ).first()
+
+    if budget:
+        budget_amount = budget.budget_amount
+        if amount_spent >= 0.75 * budget_amount:
+            notification = Notification(
+                message=f"You have reached 75% of your budget in the {category} category.",
+                user_id=user_id
+            )
+            db.session.add(notification)
+            db.session.commit()
+def get_expense_frequency(user_id):
+    expenses = Expense.query.filter_by(user_id=user_id).all()
+    categories = [expense.category for expense in expenses]
+    frequency = Counter(categories)
+    return frequency
+def get_most_frequent_categories(user_id):
+    frequency = get_expense_frequency(user_id)
+    sorted_categories = sorted(frequency.items(), key=lambda x: x[1], reverse=True)
+    return sorted_categories
+def identify_savings_opportunities(user_id):
+    budget = {}
+    actual_spending = {}
+    three_months_ago = datetime.utcnow() - relativedelta(months=3)
+    three_months_ago_month = three_months_ago.month
+    three_months_ago_year = three_months_ago.year
+    budgets = Budget.query.filter_by(user_id=user_id).filter((Budget.month >= three_months_ago_month) & (Budget.year >= three_months_ago_year)).all()
+    for b in budgets:
+        budget[b.category] = budget.get(b.category, 0) + b.budget_amount
+    expenses = Expense.query.filter_by(user_id=user_id).filter(Expense.date >= three_months_ago).all()
+    for e in expenses:
+        actual_spending[e.category] = actual_spending.get(e.category, 0) + e.amount
+    savings_opportunities = {}
+    for category, budget_amount in budget.items():
+        actual_amount = actual_spending.get(category, 0)
+        if actual_amount < budget_amount:
+            savings_opportunities[category] = budget_amount - actual_amount
+    return savings_opportunities
+def send_budget_reminders():
+    next_month = datetime.utcnow().month + 1
+    next_year = datetime.utcnow().year
+    if next_month == 13:
+        next_month = 1
+        next_year += 1
+    users = User.query.all()
+    for user in users:
+        budget_exists = Budget.query.filter_by(
+            user_id=user.id,
+            month=next_month,
+            year=next_year).first()
+        if not budget_exists:
+            notification = Notification(message="Please set a budget for the upcoming month.", user_id=user.id)
+            db.session.add(notification)
+    db.session.commit()
+def generate_line_graph(data, title='Spending Over Time'):
     dates = list(data.keys())
     amounts = list(data.values())
     plt.figure(figsize=(10, 6))
     plt.plot(dates, amounts, marker='o')
-    plt.title('Spending Over Time')
+    plt.title(title)
     plt.xlabel('Date')
     plt.ylabel('Total Amount')
     plt.grid(True)
@@ -102,23 +252,12 @@ def generate_line_graph(data):
     plt.savefig(buf, format='png')
     buf.seek(0)
     return buf
-def generate_spending_over_time(data):
-    plt.figure(figsize=(12, 7))
-    dates = list(data.keys())
-    plt.plot(dates, list(data.values()))
-    plt.title("Spending over Time")
-    buf = BytesIO()
-    plt.savefig(buf, format="png")
-    buf.seek(0)
-    return buf
 def generate_trend_graph(trends, title="Spending Trends"):
     categories = list(trends.keys())
     values = list(trends.values())
     colors = ['green' if val >= 0 else 'red' for val in values]
-
     plt.figure(figsize=(12, 7))
     bars = plt.bar(categories, values, color=colors)
-
     for bar in bars:
         yval = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2, yval,
@@ -126,18 +265,15 @@ def generate_trend_graph(trends, title="Spending Trends"):
                  ha='center',
                  va='bottom' if yval < 0 else 'top',
                  color='black')
-
     plt.title(title)
     plt.xlabel("Categories")
     plt.ylabel("Percentage Change")
     plt.xticks(rotation=45)
-
     buf = io.BytesIO()
     plt.tight_layout()
     plt.savefig(buf, format='png')
     buf.seek(0)
     return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}"
-
 def export_to_excel(data):
     df = pd.DataFrame(data)
     output = BytesIO()
@@ -145,6 +281,58 @@ def export_to_excel(data):
         df.to_excel(writer, sheet_name="Expenses", index=False)
     output.seek(0)
     return output
+# ===================================================FORMS SECTION======================================================
+class RegistrationForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired(), Length(min=2, max=20)])
+    email = StringField('Email', validators=[DataRequired(), Email()])
+    password = PasswordField('Password', validators=[DataRequired()])
+    confirm_password = PasswordField('Confirm Password', validators=[DataRequired(), EqualTo('password')])
+    submit = SubmitField('Sign Up')
+    def validate_username(self, username):
+        user = User.query.filter_by(username=username.data).first()
+        if user: raise ValidationError('That username is already taken. Please choose a different one.')
+    def validate_email(self, email):
+        user = User.query.filter_by(email=email.data).first()
+        if user:
+            raise ValidationError('That email is already in use. Please choose a different one or log in.')
+class LoginForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired()])
+    password = PasswordField('Password', validators=[DataRequired()])
+    submit = SubmitField('Login')
+    class Meta:
+        csrf = False  # This is the default behavior, so you can omit it if you want CSRF protection.
+class EditProfileForm(FlaskForm):
+    firstname = StringField('First Name', validators=[Length(max=50)])
+    lastname = StringField('Last Name', validators=[Length(max=50)])
+    email = StringField('Email', validators=[DataRequired(), Email()])
+    submit = SubmitField('Update Profile')
+    class Meta:
+        csrf = False
+    def validate_username(self, username):
+        if username.data != current_user.username:
+            user = User.query.filter_by(username=username.data).first()
+            if user:
+                raise ValidationError('That username is already taken. Please choose a different one.')
+    def validate_email(self, email):
+        if email.data != current_user.email:
+            user = User.query.filter_by(email=email.data).first()
+            if user:
+                raise ValidationError('That email is already in use. Please choose a different one or log in.')
+class ChangePasswordForm(FlaskForm):
+    current_password = PasswordField('Current Password', validators=[DataRequired()])
+    new_password = PasswordField('New Password', validators=[DataRequired()])
+    confirm_password = PasswordField('Confirm New Password', validators=[DataRequired(), EqualTo('new_password',                                                                                   message='Passwords must match.')])
+    submit = SubmitField('Change Password')
+class ExpenseForm(FlaskForm):
+    category = SelectField('Category', choices=PREDEFINED_CATEGORIES['expense'],
+                           validators=[DataRequired(), Length(min=2, max=100)])
+    description = StringField('Description', validators=[Optional(), Length(max=300)])
+    amount = FloatField('Amount', validators=[DataRequired()])
+    submit = SubmitField('Submit')
+class CategoryBudgetForm(FlaskForm):
+    for category in PREDEFINED_CATEGORIES['expense']:
+        locals()[to_snake_case(category)] = FloatField(category, validators=[Optional()])
+    submit = SubmitField('Set Category Budgets')
 
 # -----------------------------------DATA MODELS SECTION----------------------------------------------------------------
 class User(UserMixin, db.Model):
@@ -162,46 +350,19 @@ class User(UserMixin, db.Model):
         self.password_hash = generate_password_hash(password)
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
-
-class Budget(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    category = db.Column(db.String(80), nullable=False)  # Specific category like "Housing", "Food", etc.
-    budget_amount = db.Column(db.Float, nullable=True)  # Budget amount for that category
-    user = db.relationship('User', back_populates='budgets')
-    __table_args__ = (db.UniqueConstraint('user_id', 'category', name='unique_category_per_user'),)
-    @classmethod
-    def get_budget_for_category(cls, user_id, category):
-        budget = cls.query.filter_by(user_id=user_id, category=category).first()
-        print(f"Budget for user_id {user_id} and category {category}: {budget}")
-        return budget
-
-
-class BudgetService:
-    @staticmethod
-    def check_budget_for_user(user):
-        for category in PREDEFINED_CATEGORIES['expense']:
-            total_expense_for_category = sum(
-                exp.amount for exp in user.expenses if exp.category == category)  # Updated attributes
-            budget_for_category = Budget.query.filter_by(user_id=user.id, category=category).first()
-            if budget_for_category and total_expense_for_category >= budget_for_category.budget_amount:
-                notify_user(user, f"Your spending in {category} has reached or exceeded your set budget.")
-
     @staticmethod
     def check_large_expense_for_user(user):
         LARGE_EXPENSE_THRESHOLD = 1000  # or any other threshold
         for expense in user.expenses:
             if expense.amount >= LARGE_EXPENSE_THRESHOLD:  # Replaced expense.budget_amount with expense.amount
                 notify_user(user, f"You have a large expense of {expense.amount} for {expense.category}.")
-
     @staticmethod
     def check_recurring_expenses_for_user(user):
         current_month = datetime.utcnow().month
         current_year = datetime.utcnow().year
         monthly_expenses = Expense.query.filter_by(user_id=user.id).filter(
             db.extract('month', Expense.date) == current_month,
-            db.extract('year', Expense.date) == current_year
-        ).all()
+            db.extract('year', Expense.date) == current_year).all()
         category_counts = {}
         for expense in monthly_expenses:
             if expense.category in category_counts:
@@ -211,14 +372,25 @@ class BudgetService:
         for category, count in category_counts.items():
             if count > 1:
                 notify_user(user, f"Reminder: You have multiple expenses for '{category}' this month.")
-
     @classmethod
     def check_all_alerts_for_user(cls, user):
         cls.check_budget_for_user(user)
         cls.check_large_expense_for_user(user)
         cls.check_recurring_expenses_for_user(user)
-
-
+class Budget(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    category = db.Column(db.String(80), nullable=False)  # Specific category like "Housing", "Food", etc.
+    budget_amount = db.Column(db.Float, nullable=True)  # Budget amount for that category
+    month = db.Column(db.Integer, nullable=False, default=datetime.utcnow().month)
+    year = db.Column(db.Integer, nullable=False, default=datetime.utcnow().year)
+    user = db.relationship('User', back_populates='budgets')
+    __table_args__ = (db.UniqueConstraint('user_id', 'category', name='unique_category_per_user'),)
+    @classmethod
+    def get_budget_for_category(cls, user_id, category):
+        budget = cls.query.filter_by(user_id=user_id, category=category).first()
+        print(f"Budget for user_id {user_id} and category {category}: {budget}")
+        return budget
 class Expense(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
@@ -251,7 +423,6 @@ class Expense(db.Model):
                 percent_change = ((current_spending - previous_spending) / previous_spending) * 100
                 trends[category] = percent_change
         return trends
-
     @classmethod
     def compute_yearly_spending_trends(cls, user_id):
         current_year = datetime.utcnow().year
@@ -267,9 +438,7 @@ class Expense(db.Model):
             if previous_spending != 0:
                 percent_change = ((current_spending - previous_spending) / previous_spending) * 100
                 trends[category] = percent_change
-
         return trends
-
     @classmethod
     def collect_expense_data(cls, expenses):
         data = defaultdict(float)  # Default value of 0.0 for each category
@@ -287,66 +456,6 @@ class Notification(db.Model):
     def has_unread_notifications(user_id):
         count = Notification.query.filter_by(user_id=user_id, is_read=False).count()
         return count > 0
-# ---------------------------------------------FORMS SECTION------------------------------------------------------------
-class RegistrationForm(FlaskForm):
-    username = StringField('Username', validators=[DataRequired(), Length(min=2, max=20)])
-    email = StringField('Email', validators=[DataRequired(), Email()])
-    password = PasswordField('Password', validators=[DataRequired()])
-    confirm_password = PasswordField('Confirm Password', validators=[DataRequired(), EqualTo('password')])
-    submit = SubmitField('Sign Up')
-    def validate_username(self, username):
-        user = User.query.filter_by(username=username.data).first()
-        if user:
-            raise ValidationError('That username is already taken. Please choose a different one.')
-    def validate_email(self, email):
-        user = User.query.filter_by(email=email.data).first()
-        if user:
-            raise ValidationError('That email is already in use. Please choose a different one or log in.')
-class LoginForm(FlaskForm):
-    username = StringField('Username', validators=[DataRequired()])
-    password = PasswordField('Password', validators=[DataRequired()])
-    submit = SubmitField('Login')
-    class Meta:
-        csrf = False  # This is the default behavior, so you can omit it if you want CSRF protection.
-class EditProfileForm(FlaskForm):
-    firstname = StringField('First Name', validators=[Length(max=50)])
-    lastname = StringField('Last Name', validators=[Length(max=50)])
-    email = StringField('Email', validators=[DataRequired(), Email()])
-    submit = SubmitField('Update Profile')
-    class Meta:
-        csrf = False
-    def validate_username(self, username):
-        if username.data != current_user.username:
-            user = User.query.filter_by(username=username.data).first()
-            if user:
-                raise ValidationError('That username is already taken. Please choose a different one.')
-    def validate_email(self, email):
-        if email.data != current_user.email:
-            user = User.query.filter_by(email=email.data).first()
-            if user:
-                raise ValidationError('That email is already in use. Please choose a different one or log in.')
-class ChangePasswordForm(FlaskForm):
-    current_password = PasswordField('Current Password', validators=[DataRequired()])
-    new_password = PasswordField('New Password', validators=[DataRequired()])
-    confirm_password = PasswordField('Confirm New Password', validators=[DataRequired(), EqualTo('new_password',
-                                                                                                 message='Passwords must match.')])
-    submit = SubmitField('Change Password')
-class ExpenseForm(FlaskForm):
-    category = SelectField('Category', choices=PREDEFINED_CATEGORIES['expense'],
-                           validators=[DataRequired(), Length(min=2, max=100)])
-    description = StringField('Description', validators=[Optional(), Length(max=300)])
-    amount = FloatField('Amount', validators=[DataRequired()])
-    submit = SubmitField('Submit')
-class MainBudgetForm(FlaskForm):
-    main_budget = FloatField('Main Budget Amount', validators=[DataRequired()])
-    submit = SubmitField('Set Main Budget')
-
-class CategoryBudgetForm(FlaskForm):
-    for category in PREDEFINED_CATEGORIES['expense']:
-        locals()[to_snake_case(category)] = FloatField(category, validators=[Optional()])
-    submit = SubmitField('Set Category Budgets')
-
-
 # ===============================================ROUTES SECTION=========================================================
 @app.route('/user/register', methods=['GET', 'POST'])
 def register():
@@ -389,7 +498,7 @@ def login():
 def logout():
     logout_user()
     flash('You have been logged out.')
-    return redirect(url_for('login'))
+    return redirect(url_for('login.html'))
 @app.route('/user/profile')
 @login_required
 def profile():
@@ -410,7 +519,6 @@ def edit_profile_details():
         form.lastname.data = current_user.lastname
         form.email.data = current_user.email
     return render_template('edit_profile_details.html', form=form)
-
 @app.route('/user/change-password', methods=['GET', 'POST'])
 @login_required
 def change_password():
@@ -425,21 +533,18 @@ def change_password():
         return redirect(url_for('dashboard'))
     return render_template('change_password.html', form=form)
 # ------------------------------------------EXPENSE-ROUTES----------------------------------------------------------
-@app.route('/expenses/add-expense', methods=['GET', 'POST'])
-@login_required
 def add_expense():
     form = ExpenseForm()
     if form.validate_on_submit():
         expense = Expense(category=form.category.data, amount=form.amount.data,
                           description=form.description.data or None, user_id=current_user.id)
-        db.session.add(expense)
-        db.session.commit()
+        add_and_commit(expense)  # Using the helper function
+        amount_spent = calculate_amount_spent(current_user.id, form.category.data)
+        check_budget_limit(current_user.id, form.category.data, amount_spent)
         flash('Expense added successfully!')
-        BudgetService.check_large_expense_for_user(current_user)
+        User.check_large_expense_for_user(current_user)
         return redirect(url_for('view_expenses'))
     return render_template('add_expense.html', form=form)
-
-@app.route('/expenses/view-expense')
 @login_required
 def view_expenses():
     expenses = Expense.query.filter_by(user_id=current_user.id).all()
@@ -456,7 +561,7 @@ def edit_expense(expense_id):
         if form.amount.data <= 0:
             flash('Please enter a positive amount for the expense.')
             return render_template('edit_expenses.html', form=form)
-        expense.budget_type = form.source.data
+        expense.category = form.category.data
         expense.budget_amount = form.amount.data
         expense.description = form.description.data
         try:
@@ -481,62 +586,36 @@ def delete_expense(expense_id):
         return redirect(url_for('view_expenses'))
     return render_template('delete_expense.html', expense=expense)
 # ------------------------------------------BUDGET-ROUTES----------------------------------------------------------
-@app.route('/category-budgets/add-category', methods=['GET', 'POST'])
+@app.route('/category-budgets/add-or-update', methods=['GET', 'POST'])
 @login_required
-def add_category_budget():
+def add_or_update_category_budget():
     form = CategoryBudgetForm()
     if form.validate_on_submit():
-        for category in PREDEFINED_CATEGORIES['expense']:
-            field = getattr(form, to_snake_case(category))
-            if field.data is not None:  # Only save if the field has data
-                budget_entry = Budget(user_id=current_user.id, category=category, budget_amount=field.data)
-                db.session.add(budget_entry)
+        for category, field in form._fields.items():
+            if category == "submit":
+                continue
+            set_category_budget_for_month(current_user, category, field.data)
         db.session.commit()
-        flash('Budgets added successfully!')
+        flash('Budgets added or updated successfully!')
         return redirect(url_for('view_category_budgets'))
-    return render_template('add_category_budget.html', category_budget_form=form)
-
+    return render_template('add_or_update_category_budget.html', form=form)
 @app.route('/category-budgets/view-all', methods=['GET'])
 @login_required
 def view_category_budgets():
     category_budgets = Budget.query.filter(Budget.user_id == current_user.id).all()
     return render_template('view_category_budgets.html', category_budgets=category_budgets)
-@app.route('/category-budgets/update', methods=['GET', 'POST'])
-@login_required
-def update_category_budget():
-    form = CategoryBudgetForm()
-
-    if form.validate_on_submit():
-        for category, field in form._fields.items():
-            if category == "submit":
-                continue
-
-            budget_for_category = Budget.get_budget_for_category(current_user.id, category)
-            if budget_for_category:
-                budget_for_category.budget_amount = field.data
-
-        db.session.commit()
-        flash('Budgets updated successfully!')
-        return redirect(url_for('view_category_budgets'))
-
-    elif request.method == 'GET':
-        for category_budget in Budget.query.filter_by(user_id=current_user.id).all():
-            field = getattr(form, to_snake_case(category_budget.category))
-            field.data = category_budget.budget_amount
-
-    return render_template('update_category_budget.html', category_budget_form=form)
-
 @app.route('/category-budgets/delete/<int:budget_id>', methods=['POST'])
 @login_required
 def delete_category_budget(budget_id):
     budget = Budget.query.get_or_404(budget_id)
-    if budget.user_id != current_user.id:
+    current_month = datetime.now().month
+    current_year = datetime.now().year
+    if budget.user_id != current_user.id or budget.month != current_month or budget.year != current_year:
         abort(403)  # Forbidden access
     db.session.delete(budget)
     db.session.commit()
     flash(f'Your budget for {budget.category} has been deleted!', 'success')
     return redirect(url_for('view_category_budgets'))
-
 # ------------------------------------------REPORT-ROUTES----------------------------------------------------------
 @app.route('/reports/spending-by-category/monthly')
 @login_required
@@ -550,22 +629,17 @@ def monthly_spending_report():
     img = generate_spending_chart(category_data)
     img_str = b64encode(img.getvalue()).decode('utf-8')
     return render_template('monthly-spending-report.html', image_data=img_str, title="Monthly Spending by Category")
-
-
 @app.route('/reports/spending-by-category/yearly')
 @login_required
 def yearly_spending_report():
     current_year = datetime.utcnow().year
-
     expenses = Expense.query.filter_by(user_id=current_user.id)\
         .filter(db.extract('year', Expense.date) == current_year)\
         .all()
-
     category_data = Expense.collect_expense_data(expenses)
     img = generate_spending_chart(category_data)
     img_str = b64encode(img.getvalue()).decode('utf-8')
     return render_template('yearly-spending-report.html', image_data=img_str, title="Yearly Spending by Category")
-
 @app.route('/reports/spending-over-time')
 @login_required
 def spending_over_time_report():
@@ -573,19 +647,15 @@ def spending_over_time_report():
     img = generate_line_graph(data)
     img_str = b64encode(img.getvalue()).decode('utf-8')
     return render_template('spending_over_time.html', image_data=img_str)
-
 @app.route('/reports/spending-trends/monthly')
 def monthly_spending_trends():
     user_id = current_user.id
     trends = Expense.compute_monthly_spending_trends(user_id)
     trend_messages = [
         f"For {category}, the change in spending this month compared to the previous month is {trends[category]:.2f}%"
-        for category, value in trends.items()
-    ]
+        for category, value in trends.items()]
     img_data = generate_trend_graph(trends, title="Monthly Spending Trends")
-    return render_template('view_monthly_spending_trends.html', trend_messages=trend_messages,
-                           PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES, img_data=img_data)
-
+    return render_template('view_monthly_spending_trends.html', trend_messages=trend_messages, PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES, img_data=img_data)
 @app.route('/reports/spending-trends/yearly')
 def yearly_spending_trends():
     user_id = current_user.id
@@ -594,34 +664,42 @@ def yearly_spending_trends():
     trends = Expense.compute_yearly_spending_trends(user_id)
     trend_messages = [
         f"For {category} from {previous_year} to {current_year}, the change in spending is {trends[category]:.2f}%"
-        for category, value in trends.items()
-    ]
-    return render_template('view_yearly_spending_trends.html', trend_messages=trend_messages,
-                           PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES)
+        for category, value in trends.items()]
+    return render_template('view_yearly_spending_trends.html', trend_messages=trend_messages, PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES)
+@app.route('/expense_frequency', methods=['GET'])
+@login_required
+def expense_frequency():
+    most_frequent_categories = get_most_frequent_categories(current_user.id)
+    return render_template('expense_frequency.html', most_frequent_categories=most_frequent_categories)
+@app.route('/reports/budget-vs-actual', methods=['GET'])
+@login_required
+def budget_vs_actual_report():
+    current_month = datetime.utcnow().month
+    current_year = datetime.utcnow().year
+    data = get_budget_vs_actual(current_user.id, current_month, current_year)
+    img_data_url = generate_budget_vs_actual_chart(data)
+    return render_template('budget_vs_actual.html', image_data=img_data_url)
+@app.route('/savings_opportunities', methods=['GET'])
+@login_required
+def savings_opportunities():
+    opportunities = identify_savings_opportunities(current_user.id)
+    return render_template('savings_opportunities.html', opportunities=opportunities)
 @app.route('/reports/export')
 @login_required
 def export_report():
     expenses = Expense.query.filter_by(user_id=current_user.id).all()
-    data = {
-        "Description": [expense.description for expense in expenses],  # List comprehension
+    data = {"Description": [expense.description for expense in expenses],  # List comprehension
         "Amount": [expense.amount for expense in expenses],
         "Date": [expense.date for expense in expenses],
-        "Expense Category": [expense.category for expense in expenses],
-    }
-
+        "Expense Category": [expense.category for expense in expenses]}
     excel_file = export_to_excel(data)
-    return send_file(excel_file, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                     as_attachment=True, download_name="report.xlsx")
-
-
+    return send_file(excel_file, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",as_attachment=True, download_name="report.xlsx")
 # ------------------------------------------NOTIFICATIONS ROUTES----------------------------------------------------------
-
 @app.route('/notifications')
 @login_required
 def view_notifications():
     notifications = Notification.query.filter_by(user_id=current_user.id).all()
     return render_template('view_notifications.html', notifications=notifications)
-
 @app.route('/notifications/<int:notification_id>', methods=['POST'])
 @login_required
 def mark_notification_as_read(notification_id):
@@ -633,7 +711,6 @@ def mark_notification_as_read(notification_id):
     db.session.commit()
     flash('Notification marked as read.')
     return redirect(url_for('dashboard'))
-
 @app.route('/notifications/mark_all_as_read', methods=['POST'])
 @login_required
 def mark_all_as_read():
@@ -643,8 +720,6 @@ def mark_all_as_read():
     db.session.commit()
     flash('All notifications marked as read.')
     return redirect(url_for('view_notifications'))
-
-
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -652,15 +727,5 @@ def dashboard():
     unread_notification_count = Notification.query.filter_by(user_id=user_id, is_read=False).count()
     previous_month_name, previous_year, current_month_name, current_year = get_previous_and_current_month_names()
     trends = Expense.compute_monthly_spending_trends(user_id)
-    trend_messages = [
-        f"For {category} from {previous_month_name} {previous_year} to {current_month_name} {current_year}, the change in spending is {trends[category]:.2f}%"
-        for category, value in trends.items()
-    ]
+    trend_messages = [ f"For {category} from {previous_month_name} {previous_year} to {current_month_name} {current_year}, the change in spending is {trends[category]:.2f}%" for category, value in trends.items()]
     return render_template('dashboard.html', trend_messages=trend_messages, PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES, unread_notification_count=unread_notification_count)
-
-# -------------------------------------------MAIN METHOD---------------------------------------------------------------
-if __name__ == '__main__':
-    if os.environ.get('FLASK_ENV') == 'development':
-        app.run(debug=True)
-    else:
-        app.run()

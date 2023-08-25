@@ -1,31 +1,23 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notifications</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
 
-{% block content %}
 <div class="container">
-    <h2>View Notifications</h2>
-
-    <!-- Displaying the notifications -->
-    {% for notification in notifications %}
-        <div class="notification">
-            <p>{{ notification.message }}</p>
-            <form action="{{ url_for('mark_notification_as_read', notification_id=notification.id) }}" method="post">
-                <button type="submit">Mark as Read</button>
-            </form>
-        </div>
-    {% endfor %}
-
-    <h2>Set Category Budgets</h2>
-    <form method="post">
-        {% for category in PREDEFINED_CATEGORIES['expense'] %}
-            <div class="form-group">
-                <label for="{{ category }}">{{ category }}</label>
-                <!-- Assuming you have a form field for each category, adjust as needed -->
-                <input type="text" name="{{ category }}" class="form-control" id="{{ category }}" placeholder="Enter budget for {{ category }}">
-            </div>
+    <h1>Notifications</h1>
+    <ul>
+        {% for notification in notifications %}
+            <li>
+                <strong>{{ notification.sender }}</strong>: {{ notification.message }}
+            </li>
         {% endfor %}
-        <div class="form-group">
-            <button type="submit" class="btn btn-primary">Submit</button>
-        </div>
-    </form>
+    </ul>
 </div>
-{% endblock %}
+
+</body>
+</html>
