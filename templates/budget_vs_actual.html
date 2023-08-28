@@ -1,10 +1,22 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Budget vs Actual Report</title>
-</head>
-<body>
-    <h2>Budget vs Actual Expenses for the Month</h2>
-    <img src="{{ image_data }}" alt="Budget vs Actual Chart">
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    <h2 class="mb-4">Budget vs Actual Expenses for the Month</h2>
+
+    <!-- Chart Image -->
+    <div class="text-center">
+        <img src="{{ image_data }}" alt="Budget vs Actual Chart" class="img-fluid">
+    </div>
+
+    <!-- Chart Description -->
+    <div class="mt-4">
+        <p>This chart represents a comparison between your budgeted and actual expenses for the current month.</p>
+    </div>
+
+    <!-- Navigation Buttons -->
+    <div class="mt-4">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+</div>
+{% endblock %}

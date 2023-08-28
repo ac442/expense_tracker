@@ -1,16 +1,17 @@
 import logging
 import os
+from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
 from datetime import datetime
 from io import BytesIO
 from collections import defaultdict
 import pandas as pd
-from flask import Flask, flash, redirect, render_template, url_for, request, abort, send_file
+from flask import Flask, abort, send_file, jsonify
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import FlaskForm
 from werkzeug.security import check_password_hash, generate_password_hash
-from wtforms import FloatField, PasswordField, SelectField, StringField, SubmitField
+from wtforms import FloatField, PasswordField, SelectField, StringField, SubmitField, BooleanField
 from wtforms.validators import DataRequired, Email, EqualTo, Length, ValidationError
 import matplotlib.pyplot as plt
 import io
@@ -23,14 +24,17 @@ from flask import flash, redirect, render_template, request, url_for
 import numpy as np
 from datetime import datetime, timedelta
 
+
 app = Flask(__name__)
 logging.basicConfig(level=logging.DEBUG, format='[%(asctime)s] %(levelname)s - %(message)s')
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE_PATH = os.path.join(BASE_DIR, 'your_database_name.db')
-app.config['SECRET_KEY'] = 'your_secret_key'  # Change this to a random value for production
+app.config['SECRET_KEY'] = 'randomString323'  # Change this to a random value for production
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DATABASE_PATH}'
 app.config['WTF_CSRF_ENABLED'] = False
+app.config["jwt"] = JWTManager(app)
 db = SQLAlchemy(app)
+jwt = JWTManager(app)
 flask_migrate = Migrate(app, db)
 PREDEFINED_CATEGORIES = {'expense': ["Housing & Utilities", "Food & Dining", "Transport",
                 "Personal Care & Lifestyle", "Savings", "Investments",
@@ -63,6 +67,13 @@ def inject_predefined_categories():
 @app.template_filter('to_snake_case')
 def to_snake_case(string):
     return string.lower().replace(' & ', '_and_').replace(' ', '_')
+
+@app.route('/protected', methods=['GET'])
+@jwt_required()
+def protected():
+    current_user = get_jwt_identity()
+    return jsonify(logged_in_as=current_user), 200
+
 def notify_user(user, message):
     notification = Notification(message=message, user_id=user.id)
     db.session.add(notification)
@@ -88,6 +99,10 @@ def get_current_month_and_year():
     current_datetime = datetime.utcnow()
     return current_datetime.month, current_datetime.year
 
+def get_monthly_expenses(year, month):
+    return Expense.query.filter_by(user_id=current_user.id)\
+            .filter(db.extract('year', Expense.date) == year, db.extract('month', Expense.date) == month)\
+            .all()
 
 def get_budget_for_month(user, category):
     current_month = datetime.utcnow().month
@@ -176,6 +191,15 @@ def calculate_amount_spent(user_id, category):
         db.extract('month', Expense.date) == current_month,
         db.extract('year', Expense.date) == current_year).all()
     return sum(expense.amount for expense in expenses)
+
+def generate_report_image(img_generator_func, data):
+    try:
+        img = img_generator_func(data)
+        img_str = b64encode(img.getvalue()).decode('utf-8')
+        return img_str, True
+    except Exception as e:
+        logging.error(f"Error generating report image: {e}")
+        return None, False
 def check_budget_limit(user_id, category, amount_spent):
     current_month = datetime.utcnow().month
     current_year = datetime.utcnow().year
@@ -323,18 +347,103 @@ class ChangePasswordForm(FlaskForm):
     new_password = PasswordField('New Password', validators=[DataRequired()])
     confirm_password = PasswordField('Confirm New Password', validators=[DataRequired(), EqualTo('new_password',                                                                                   message='Passwords must match.')])
     submit = SubmitField('Change Password')
+
+
+PREDEFINED_CATEGORIES = {
+    'expense': ["Housing & Utilities", "Food & Dining", "Transport",
+                "Personal Care & Lifestyle", "Savings", "Investments",
+                "Personal Debt", "Taxes", "Family & Relationships",
+                "Education & Professional Services", "Miscellaneous"]
+}
+
 class ExpenseForm(FlaskForm):
-    category = SelectField('Category', choices=PREDEFINED_CATEGORIES['expense'],
+    category = SelectField('Category', choices=[(cat, cat) for cat in PREDEFINED_CATEGORIES['expense']],
                            validators=[DataRequired(), Length(min=2, max=100)])
     description = StringField('Description', validators=[Optional(), Length(max=300)])
     amount = FloatField('Amount', validators=[DataRequired()])
+    is_recurring = BooleanField('Is this a recurring expense?')  # New field for recurring
+    recurring_frequency = SelectField('Recurring Frequency', choices=[('', '--Select Frequency--'), ('daily', 'Daily'), ('weekly', 'Weekly'), ('monthly', 'Monthly')])  # New field for frequency
     submit = SubmitField('Submit')
+
 class CategoryBudgetForm(FlaskForm):
     for category in PREDEFINED_CATEGORIES['expense']:
         locals()[to_snake_case(category)] = FloatField(category, validators=[Optional()])
     submit = SubmitField('Set Category Budgets')
 
 # -----------------------------------DATA MODELS SECTION----------------------------------------------------------------
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    message = db.Column(db.String(200))
+    date_created = db.Column(db.DateTime, index=True, default=datetime.utcnow)
+    is_read = db.Column(db.Boolean, default=False)
+    user = db.relationship('User', back_populates='notifications', lazy=True)
+    @classmethod
+    def has_unread_notifications(user_id):
+        count = Notification.query.filter_by(user_id=user_id, is_read=False).count()
+        return count > 0
+
+class Expense(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    category = db.Column(db.String(80), nullable=False)
+    amount = db.Column(db.Integer, nullable=False)
+    date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    description = db.Column(db.String(200))
+    is_recurring = db.Column(db.Boolean, default=False)  # New field
+    recurring_frequency = db.Column(db.String(50))  # New field (e.g., 'Weekly', 'Monthly')
+    user = db.relationship('User', back_populates='expenses')
+
+    # Your existing Classmethods and other functionalities
+    # ...
+
+    @classmethod
+    def compute_monthly_spending_trends(cls, user_id):
+        current_month = datetime.utcnow().month
+        current_year = datetime.utcnow().year
+        if current_month == 1:
+            previous_month = 12
+            previous_year = current_year - 1
+        else:
+            previous_month = current_month - 1
+            previous_year = current_year
+        current_month_expenses = cls.query.filter_by(user_id=user_id).filter(
+            db.extract('month', cls.date) == current_month,
+            db.extract('year', cls.date) == current_year).all()
+        previous_month_expenses = cls.query.filter_by(user_id=user_id).filter(
+            db.extract('month', cls.date) == previous_month,
+            db.extract('year', cls.date) == previous_year).all()
+        trends = {}
+        for category in PREDEFINED_CATEGORIES['expense']:
+            current_spending = sum(exp.amount for exp in current_month_expenses if exp.category == category)
+            previous_spending = sum(exp.amount for exp in previous_month_expenses if exp.category == category)
+            if previous_spending != 0:
+                percent_change = ((current_spending - previous_spending) / previous_spending) * 100
+                trends[category] = percent_change
+        return trends
+    @classmethod
+    def compute_yearly_spending_trends(cls, user_id):
+        current_year = datetime.utcnow().year
+        previous_year = current_year - 1
+        current_year_expenses = cls.query.filter_by(user_id=user_id).filter(
+            db.extract('year', cls.date) == current_year).all()
+        previous_year_expenses = cls.query.filter_by(user_id=user_id).filter(
+            db.extract('year', cls.date) == previous_year).all()
+        trends = {}
+        for category in PREDEFINED_CATEGORIES['expense']:
+            current_spending = sum(exp.amount for exp in current_year_expenses if exp.category == category)
+            previous_spending = sum(exp.amount for exp in previous_year_expenses if exp.category == category)
+            if previous_spending != 0:
+                percent_change = ((current_spending - previous_spending) / previous_spending) * 100
+                trends[category] = percent_change
+        return trends
+    @classmethod
+    def collect_expense_data(cls, expenses):
+        data = defaultdict(float)  # Default value of 0.0 for each category
+        for expense in expenses:
+            data[expense.category] += expense.amount
+        return dict(data)
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -391,93 +500,55 @@ class Budget(db.Model):
         budget = cls.query.filter_by(user_id=user_id, category=category).first()
         print(f"Budget for user_id {user_id} and category {category}: {budget}")
         return budget
-class Expense(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    category = db.Column(db.String(80), nullable=False)
-    amount = db.Column(db.Integer, nullable=False)
-    date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    description = db.Column(db.String(200))
-    user = db.relationship('User', back_populates='expenses')
-    @classmethod
-    def compute_monthly_spending_trends(cls, user_id):
-        current_month = datetime.utcnow().month
-        current_year = datetime.utcnow().year
-        if current_month == 1:
-            previous_month = 12
-            previous_year = current_year - 1
-        else:
-            previous_month = current_month - 1
-            previous_year = current_year
-        current_month_expenses = cls.query.filter_by(user_id=user_id).filter(
-            db.extract('month', cls.date) == current_month,
-            db.extract('year', cls.date) == current_year).all()
-        previous_month_expenses = cls.query.filter_by(user_id=user_id).filter(
-            db.extract('month', cls.date) == previous_month,
-            db.extract('year', cls.date) == previous_year).all()
-        trends = {}
-        for category in PREDEFINED_CATEGORIES['expense']:
-            current_spending = sum(exp.amount for exp in current_month_expenses if exp.category == category)
-            previous_spending = sum(exp.amount for exp in previous_month_expenses if exp.category == category)
-            if previous_spending != 0:
-                percent_change = ((current_spending - previous_spending) / previous_spending) * 100
-                trends[category] = percent_change
-        return trends
-    @classmethod
-    def compute_yearly_spending_trends(cls, user_id):
-        current_year = datetime.utcnow().year
-        previous_year = current_year - 1
-        current_year_expenses = cls.query.filter_by(user_id=user_id).filter(
-            db.extract('year', cls.date) == current_year).all()
-        previous_year_expenses = cls.query.filter_by(user_id=user_id).filter(
-            db.extract('year', cls.date) == previous_year).all()
-        trends = {}
-        for category in PREDEFINED_CATEGORIES['expense']:
-            current_spending = sum(exp.amount for exp in current_year_expenses if exp.category == category)
-            previous_spending = sum(exp.amount for exp in previous_year_expenses if exp.category == category)
-            if previous_spending != 0:
-                percent_change = ((current_spending - previous_spending) / previous_spending) * 100
-                trends[category] = percent_change
-        return trends
-    @classmethod
-    def collect_expense_data(cls, expenses):
-        data = defaultdict(float)  # Default value of 0.0 for each category
-        for expense in expenses:
-            data[expense.category] += expense.amount
-        return dict(data)
-class Notification(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    message = db.Column(db.String(200))
-    date_created = db.Column(db.DateTime, index=True, default=datetime.utcnow)
-    is_read = db.Column(db.Boolean, default=False)
-    user = db.relationship('User', back_populates='notifications', lazy=True)
-    @classmethod
-    def has_unread_notifications(user_id):
-        count = Notification.query.filter_by(user_id=user_id, is_read=False).count()
-        return count > 0
+
+
+
+
 # ===============================================ROUTES SECTION=========================================================
+@app.route('/protected', methods=['GET'])
+@jwt_required()
+def protected():
+    current_user = get_jwt_identity()
+    return jsonify(logged_in_as=current_user), 200
+
 @app.route('/user/register', methods=['GET', 'POST'])
 def register():
+    form = RegistrationForm()
     if request.method == 'POST':
         username = request.form.get('username')
         email = request.form.get('email')
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
+
         if password != confirm_password:
             flash('Passwords do not match!')
-            return render_template('register.html')
+            return render_template('register.html'), 400  # Bad Request
+
         existing_user = User.query.filter_by(username=username).first()
         if existing_user:
             flash('Username already exists!')
-            return render_template('register.html')
+            return render_template('register.html'), 409  # Conflict
+
         hashed_password = generate_password_hash(password, method='sha256')
         new_user = User(username=username, email=email, password_hash=hashed_password)
         db.session.add(new_user)
         db.session.commit()
+
         flash('Registration successful!')
-        return redirect(url_for('login'))  # Assuming you have a 'login' route
-    return render_template('register.html')
+        return redirect(url_for('login')), 201  # Created
+    return render_template('register.html', form=form), 200  # OK
+
+
+from flask import Flask, jsonify, redirect, url_for, flash, render_template
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+
+
+# Initialize Flask app and Flask-JWT-Extended
+app = Flask(__name__)
+app.config['JWT_SECRET_KEY'] = 'your-secret-key'  # Change this!
+jwt = JWTManager(app)
+
+
 @app.route('/user/login', methods=['GET', 'POST'])
 def login():
     form = LoginForm()
@@ -485,187 +556,312 @@ def login():
         if form.validate_on_submit():
             username = form.username.data
             password = form.password.data
+
+            # Assuming User is your user model and you have a method to query by username
             user = User.query.filter_by(username=username).first()
+
+            # Assuming you have a method to check password in the User model
             if user and user.check_password(password):
-                login_user(user)
-                return redirect(url_for('dashboard'))
-            flash('Invalid username or password')
+
+                # Create the token
+                access_token = create_access_token(identity=username)
+
+                # You can store the token in the client side, either as a cookie or in local storage
+                response = jsonify({'login': True, 'token': access_token})
+                return response, 200  # OK
+            else:
+                flash('Invalid username or password')
+                return render_template('login.html', form=form)
     except Exception as e:
+        logging.error(f"Error during login: {e}")
         flash('Error during login. Please try again.')
-    return render_template('login.html', form=form), 401
+    return render_template('login.html', form=form)
+
+
+@app.route('/user/logout', methods=['GET'])
+@login_required  # This decorator is optional depending on your use case
+def logout():
+    # With JWT, there's no server-side way to invalidate the token
+    # Inform the client to remove the token on their side
+    return jsonify({'logout': True, 'message': 'You have been logged out.'}), 200  # OK
+
+
 @app.route('/user/logout')
 @login_required
 def logout():
     logout_user()
     flash('You have been logged out.')
-    return redirect(url_for('login.html'))
+    return redirect(url_for('login')), 200  # OK
 @app.route('/user/profile')
 @login_required
 def profile():
-    return render_template('profile.html', user=current_user)
+    return render_template('profile.html', user=current_user), 200  # OK
+
 @app.route('/user/edit_profile_details', methods=['GET', 'POST'])
 @login_required
 def edit_profile_details():
     form = EditProfileForm()
-    if form.validate_on_submit():
-        current_user.firstname = form.firstname.data
-        current_user.lastname = form.lastname.data
-        current_user.email = form.email.data
-        db.session.commit()
-        flash('Your profile has been updated!', 'success')
-        return redirect(url_for('dashboard'))
-    elif request.method == 'GET':
-        form.firstname.data = current_user.firstname
-        form.lastname.data = current_user.lastname
-        form.email.data = current_user.email
-    return render_template('edit_profile_details.html', form=form)
+    try:
+        if form.validate_on_submit():
+            current_user.firstname = form.firstname.data
+            current_user.lastname = form.lastname.data
+            current_user.email = form.email.data
+            db.session.commit()
+            flash('Your profile has been updated!', 'success')
+            return redirect(url_for('dashboard')), 200  # OK
+        elif request.method == 'GET':
+            form.firstname.data = current_user.firstname
+            form.lastname.data = current_user.lastname
+            form.email.data = current_user.email
+    except Exception as e:
+        logging.error(f"Error during profile update: {e}")
+        flash('An error occurred. Please try again.', 'danger')
+        return render_template('edit_profile_details.html', form=form), 500  # Internal Server Error
+    return render_template('edit_profile_details.html', form=form), 200  # OK
+
 @app.route('/user/change-password', methods=['GET', 'POST'])
 @login_required
 def change_password():
     form = ChangePasswordForm()
-    if form.validate_on_submit():
-        if not check_password_hash(current_user.password, form.old_password.data):
-            flash('Incorrect old password.', 'danger')
-            return redirect(url_for('change_password'))
-        current_user.password = generate_password_hash(form.new_password.data, method='sha256')
-        db.session.commit()
-        flash('Your password has been changed successfully!', 'success')
-        return redirect(url_for('dashboard'))
-    return render_template('change_password.html', form=form)
+    try:
+        if form.validate_on_submit():
+            if not check_password_hash(current_user.password, form.current_password.data):  # Updated this line
+                flash('Incorrect old password.', 'danger')
+                return redirect(url_for('change_password')), 401  # Unauthorized
+            current_user.password = generate_password_hash(form.new_password.data, method='sha256')
+            db.session.commit()
+            flash('Your password has been changed successfully!', 'success')
+            return redirect(url_for('dashboard')), 200  # OK
+    except Exception as e:
+        logging.error(f"Error during password change: {e}")
+        flash('An error occurred. Please try again.', 'danger')
+        return render_template('change_password.html', form=form), 500  # Internal Server Error
+    return render_template('change_password.html', form=form), 200  # OK
+
+
 # ------------------------------------------EXPENSE-ROUTES----------------------------------------------------------
+@app.route('/expenses/add', methods=['GET', 'POST'])
+@login_required  # Moved the decorator here to ensure the user is logged in before adding an expense
 def add_expense():
     form = ExpenseForm()
-    if form.validate_on_submit():
-        expense = Expense(category=form.category.data, amount=form.amount.data,
-                          description=form.description.data or None, user_id=current_user.id)
-        add_and_commit(expense)  # Using the helper function
-        amount_spent = calculate_amount_spent(current_user.id, form.category.data)
-        check_budget_limit(current_user.id, form.category.data, amount_spent)
-        flash('Expense added successfully!')
-        User.check_large_expense_for_user(current_user)
-        return redirect(url_for('view_expenses'))
-    return render_template('add_expense.html', form=form)
+    try:
+        if form.validate_on_submit():
+            expense = Expense(
+                category=form.category.data,
+                amount=form.amount.data,
+                description=form.description.data or None,
+                user_id=current_user.id,
+                is_recurring=form.is_recurring.data,  # New field
+                recurring_frequency=form.recurring_frequency.data if form.is_recurring.data else None  # New field
+            )
+            db.session.add(expense)
+            db.session.commit()
+            # Additional logic like amount_spent and check_budget_limit are assumed to be defined elsewhere
+            flash('Expense added successfully!', 'success')
+            return redirect(url_for('view_expenses')), 201  # Created
+    except Exception as e:
+        logging.error(f"Error adding expense: {e}")
+        db.session.rollback()  # Roll back the session in case of an error
+        flash('An error occurred while adding the expense. Please try again.', 'danger')
+        return render_template('add_expense.html', form=form), 500  # Internal Server Error
+    return render_template('add_expense.html', form=form), 200  # OK
+
+from flask import request  # make sure to import request
+
+@app.route('/expenses/view-all', methods=['GET'])
 @login_required
 def view_expenses():
-    expenses = Expense.query.filter_by(user_id=current_user.id).all()
-    return render_template('view_expenses.html', expenses=expenses)
+    is_recurring_filter = request.args.get('is_recurring', None, type=bool)
+
+    if is_recurring_filter is not None:
+        expenses = Expense.query.filter_by(user_id=current_user.id, is_recurring=is_recurring_filter).all()
+    else:
+        expenses = Expense.query.filter_by(user_id=current_user.id).all()
+
+    return render_template('view_expenses.html', expenses=expenses), 200  # OK
+
 @app.route('/expenses/update-expense/<int:expense_id>', methods=['GET', 'POST'])
 @login_required
 def edit_expense(expense_id):
     expense = Expense.query.get_or_404(expense_id)
     if expense.user_id != current_user.id:
-        flash('You do not have permission to edit this entry.')
-        return redirect(url_for('view_expenses'))
+        flash('You do not have permission to edit this entry.', 'danger')
+        return redirect(url_for('view_expenses')), 403  # Forbidden
     form = ExpenseForm(obj=expense)
-    if form.validate_on_submit():
-        if form.amount.data <= 0:
-            flash('Please enter a positive amount for the expense.')
-            return render_template('edit_expenses.html', form=form)
-        expense.category = form.category.data
-        expense.budget_amount = form.amount.data
-        expense.description = form.description.data
-        try:
+    try:
+        if form.validate_on_submit():
+            expense.category = form.category.data
+            expense.amount = form.amount.data  # Fixed from 'budget_amount' to 'amount'
+            expense.description = form.description.data
             db.session.commit()
-            flash('Expense updated successfully!')
-        except:
-            db.session.rollback()
-            flash('Error updating expense. Please try again later.')
-        return redirect(url_for('view_expenses'))
-    return render_template('edit_expenses.html', form=form)
+            flash('Expense updated successfully!', 'success')
+            return redirect(url_for('view_expenses')), 200  # OK
+    except Exception as e:
+        logging.error(f"Error updating expense: {e}")
+        db.session.rollback()
+        flash('An error occurred while updating the expense. Please try again.', 'danger')
+        return render_template('edit_expenses.html', form=form), 500  # Internal Server Error
+    return render_template('edit_expenses.html', form=form), 200  # OK
+
 @app.route('/expenses/delete-expense/<int:expense_id>', methods=['GET', 'POST'])
 @login_required
 def delete_expense(expense_id):
     expense = Expense.query.get_or_404(expense_id)
     if expense.user_id != current_user.id:
-        flash('You do not have permission to delete this entry.')
-        return redirect(url_for('view_expenses'))
-    if request.method == 'POST':
-        db.session.delete(expense)
-        db.session.commit()
-        flash('Expense entry deleted successfully!')
-        return redirect(url_for('view_expenses'))
-    return render_template('delete_expense.html', expense=expense)
+        flash('You do not have permission to delete this entry.', 'danger')
+        return redirect(url_for('view_expenses')), 403  # Forbidden
+    try:
+        if request.method == 'POST':
+            db.session.delete(expense)
+            db.session.commit()
+            flash('Expense entry deleted successfully!', 'success')
+            return redirect(url_for('view_expenses')), 200  # OK
+    except Exception as e:
+        logging.error(f"Error deleting expense: {e}")
+        db.session.rollback()
+        flash('An error occurred while deleting the expense. Please try again.', 'danger')
+        return render_template('delete_expense.html', expense=expense), 500  # Internal Server Error
+    return render_template('delete_expense.html', expense=expense), 200  # OK
+
 # ------------------------------------------BUDGET-ROUTES----------------------------------------------------------
 @app.route('/category-budgets/add-or-update', methods=['GET', 'POST'])
 @login_required
 def add_or_update_category_budget():
     form = CategoryBudgetForm()
-    if form.validate_on_submit():
-        for category, field in form._fields.items():
-            if category == "submit":
-                continue
-            set_category_budget_for_month(current_user, category, field.data)
-        db.session.commit()
-        flash('Budgets added or updated successfully!')
-        return redirect(url_for('view_category_budgets'))
-    return render_template('add_or_update_category_budget.html', form=form)
+    try:
+        if form.validate_on_submit():
+            for category, field in form._fields.items():
+                if category == "submit":
+                    continue
+                set_category_budget_for_month(current_user, category, field.data)
+            db.session.commit()
+            flash('Budgets added or updated successfully!', 'success')
+            return redirect(url_for('view_category_budgets')), 201  # Created
+    except Exception as e:
+        logging.error(f"Error adding or updating category budget: {e}")
+        db.session.rollback()
+        flash('An error occurred while updating the budget. Please try again.', 'danger')
+        return render_template('add_or_update_category_budget.html', form=form), 500  # Internal Server Error
+    return render_template('add_or_update_category_budget.html', form=form), 200  # OK
+
 @app.route('/category-budgets/view-all', methods=['GET'])
 @login_required
 def view_category_budgets():
     category_budgets = Budget.query.filter(Budget.user_id == current_user.id).all()
-    return render_template('view_category_budgets.html', category_budgets=category_budgets)
+    return render_template('view_category_budgets.html', category_budgets=category_budgets), 200  # OK
+
 @app.route('/category-budgets/delete/<int:budget_id>', methods=['POST'])
 @login_required
 def delete_category_budget(budget_id):
     budget = Budget.query.get_or_404(budget_id)
     current_month = datetime.now().month
     current_year = datetime.now().year
-    if budget.user_id != current_user.id or budget.month != current_month or budget.year != current_year:
-        abort(403)  # Forbidden access
-    db.session.delete(budget)
-    db.session.commit()
-    flash(f'Your budget for {budget.category} has been deleted!', 'success')
-    return redirect(url_for('view_category_budgets'))
+    try:
+        if budget.user_id != current_user.id or budget.month != current_month or budget.year != current_year:
+            abort(403)  # Forbidden access
+        db.session.delete(budget)
+        db.session.commit()
+        flash(f'Your budget for {budget.category} has been deleted!', 'success')
+        return redirect(url_for('view_category_budgets')), 200  # OK
+    except Exception as e:
+        logging.error(f"Error deleting category budget: {e}")
+        db.session.rollback()
+        flash('An error occurred while deleting the budget. Please try again.', 'danger')
+        return redirect(url_for('view_category_budgets')), 500  # Internal Server Error
+
 # ------------------------------------------REPORT-ROUTES----------------------------------------------------------
 @app.route('/reports/spending-by-category/monthly')
 @login_required
 def monthly_spending_report():
-    current_month = datetime.utcnow().month
-    current_year = datetime.utcnow().year
-    expenses = Expense.query.filter_by(user_id=current_user.id)\
-        .filter(db.extract('month', Expense.date) == current_month, db.extract('year', Expense.date) == current_year)\
-        .all()
-    category_data = Expense.collect_expense_data(expenses)
-    img = generate_spending_chart(category_data)
-    img_str = b64encode(img.getvalue()).decode('utf-8')
-    return render_template('monthly-spending-report.html', image_data=img_str, title="Monthly Spending by Category")
+    try:
+        current_month = datetime.utcnow().month
+        current_year = datetime.utcnow().year
+        expenses = Expense.query.filter_by(user_id=current_user.id)\
+            .filter(db.extract('month', Expense.date) == current_month, db.extract('year', Expense.date) == current_year)\
+            .all()
+        category_data = Expense.collect_expense_data(expenses)
+        img_str, success = generate_report_image(generate_spending_chart, category_data)
+        if success:
+            return render_template('monthly-spending-report.html', image_data=img_str, title="Monthly Spending by Category"), 200  # OK
+        else:
+            flash('An error occurred while generating the report. Please try again.', 'danger')
+            return render_template('monthly-spending-report.html', title="Monthly Spending by Category"), 500  # Internal Server Error
+    except Exception as e:
+        logging.error(f"Error generating monthly spending report: {e}")
+        flash('An error occurred. Please try again.', 'danger')
+        return jsonify({'error': 'Internal Server Error'}), 500  # Internal Server Error
 @app.route('/reports/spending-by-category/yearly')
 @login_required
 def yearly_spending_report():
-    current_year = datetime.utcnow().year
-    expenses = Expense.query.filter_by(user_id=current_user.id)\
-        .filter(db.extract('year', Expense.date) == current_year)\
-        .all()
-    category_data = Expense.collect_expense_data(expenses)
-    img = generate_spending_chart(category_data)
-    img_str = b64encode(img.getvalue()).decode('utf-8')
-    return render_template('yearly-spending-report.html', image_data=img_str, title="Yearly Spending by Category")
+    try:
+        current_year = datetime.utcnow().year
+        expenses = Expense.query.filter_by(user_id=current_user.id)\
+            .filter(db.extract('year', Expense.date) == current_year)\
+            .all()
+        category_data = Expense.collect_expense_data(expenses)
+        img_str, success = generate_report_image(generate_spending_chart, category_data)
+        if success:
+            return render_template('yearly-spending-report.html', image_data=img_str, title="Yearly Spending by Category"), 200
+        else:
+            flash('An error occurred while generating the report. Please try again.', 'danger')
+            return render_template('yearly-spending-report.html', title="Yearly Spending by Category"), 500
+    except Exception as e:
+        logging.error(f"Error generating yearly spending report: {e}")
+        flash('An error occurred. Please try again.', 'danger')
+        return jsonify({'error': 'Internal Server Error'}), 500
+
 @app.route('/reports/spending-over-time')
 @login_required
 def spending_over_time_report():
-    data = get_cumulative_spending_over_time(current_user.id)
-    img = generate_line_graph(data)
-    img_str = b64encode(img.getvalue()).decode('utf-8')
-    return render_template('spending_over_time.html', image_data=img_str)
+    try:
+        data = get_cumulative_spending_over_time(current_user.id)
+        img_str, success = generate_report_image(generate_line_graph, data)
+        if success:
+            return render_template('spending_over_time.html', image_data=img_str), 200
+        else:
+            flash('An error occurred while generating the report. Please try again.', 'danger')
+            return render_template('spending_over_time.html'), 500
+    except Exception as e:
+        logging.error(f"Error generating spending over time report: {e}")
+        flash('An error occurred. Please try again.', 'danger')
+        return jsonify({'error': 'Internal Server Error'}), 500
 @app.route('/reports/spending-trends/monthly')
+@login_required  # Adding login_required to protect the route
 def monthly_spending_trends():
-    user_id = current_user.id
-    trends = Expense.compute_monthly_spending_trends(user_id)
-    trend_messages = [
-        f"For {category}, the change in spending this month compared to the previous month is {trends[category]:.2f}%"
-        for category, value in trends.items()]
-    img_data = generate_trend_graph(trends, title="Monthly Spending Trends")
-    return render_template('view_monthly_spending_trends.html', trend_messages=trend_messages, PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES, img_data=img_data)
+    try:
+        user_id = current_user.id
+        trends = Expense.compute_monthly_spending_trends(user_id)
+        trend_messages = [
+            f"For {category}, the change in spending this month compared to the previous month is {trends[category]:.2f}%"
+            for category in trends.keys()]
+        img_data, success = generate_report_image(generate_trend_graph, trends)
+        if success:
+            return render_template('view_monthly_spending_trends.html', trend_messages=trend_messages, PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES, img_data=img_data), 200
+        else:
+            flash('An error occurred while generating the trend report. Please try again.', 'danger')
+            return render_template('view_monthly_spending_trends.html', PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES), 500
+    except Exception as e:
+        logging.error(f"Error generating monthly spending trends: {e}")
+        flash('An error occurred. Please try again.', 'danger')
+        return jsonify({'error': 'Internal Server Error'}), 500
+
 @app.route('/reports/spending-trends/yearly')
+@login_required  # Adding login_required to protect the route
 def yearly_spending_trends():
-    user_id = current_user.id
-    previous_year = datetime.utcnow().year - 1
-    current_year = datetime.utcnow().year
-    trends = Expense.compute_yearly_spending_trends(user_id)
-    trend_messages = [
-        f"For {category} from {previous_year} to {current_year}, the change in spending is {trends[category]:.2f}%"
-        for category, value in trends.items()]
-    return render_template('view_yearly_spending_trends.html', trend_messages=trend_messages, PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES)
+    try:
+        user_id = current_user.id
+        previous_year = datetime.utcnow().year - 1
+        current_year = datetime.utcnow().year
+        trends = Expense.compute_yearly_spending_trends(user_id)
+        trend_messages = [
+            f"For {category} from {previous_year} to {current_year}, the change in spending is {trends[category]:.2f}%"
+            for category in trends.keys()]
+        return render_template('view_yearly_spending_trends.html', trend_messages=trend_messages, PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES), 200
+    except Exception as e:
+        logging.error(f"Error generating yearly spending trends: {e}")
+        flash('An error occurred. Please try again.', 'danger')
+        return jsonify({'error': 'Internal Server Error'}), 500
+
 @app.route('/expense_frequency', methods=['GET'])
 @login_required
 def expense_frequency():
@@ -674,11 +870,20 @@ def expense_frequency():
 @app.route('/reports/budget-vs-actual', methods=['GET'])
 @login_required
 def budget_vs_actual_report():
-    current_month = datetime.utcnow().month
-    current_year = datetime.utcnow().year
-    data = get_budget_vs_actual(current_user.id, current_month, current_year)
-    img_data_url = generate_budget_vs_actual_chart(data)
-    return render_template('budget_vs_actual.html', image_data=img_data_url)
+    try:
+        current_month = datetime.utcnow().month
+        current_year = datetime.utcnow().year
+        data = get_budget_vs_actual(current_user.id, current_month, current_year)
+        img_data_url, success = generate_report_image(generate_budget_vs_actual_chart, data)
+        if success:
+            return render_template('budget_vs_actual.html', image_data=img_data_url), 200
+        else:
+            flash('An error occurred while generating the report. Please try again.', 'danger')
+            return render_template('budget_vs_actual.html'), 500
+    except Exception as e:
+        logging.error(f"Error generating budget vs actual report: {e}")
+        flash('An error occurred. Please try again.', 'danger')
+        return jsonify({'error': 'Internal Server Error'}), 500
 @app.route('/savings_opportunities', methods=['GET'])
 @login_required
 def savings_opportunities():
@@ -729,3 +934,10 @@ def dashboard():
     trends = Expense.compute_monthly_spending_trends(user_id)
     trend_messages = [ f"For {category} from {previous_month_name} {previous_year} to {current_month_name} {current_year}, the change in spending is {trends[category]:.2f}%" for category, value in trends.items()]
     return render_template('dashboard.html', trend_messages=trend_messages, PREDEFINED_CATEGORIES=PREDEFINED_CATEGORIES, unread_notification_count=unread_notification_count)
+
+
+if __name__ == '__main__':
+    if os.environ.get('FLASK_ENV') == 'development':
+        app.run(debug=True)
+    else:
+        app.run()

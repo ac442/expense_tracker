@@ -6,38 +6,65 @@
 
     <!-- Display unread notification count -->
     {% if unread_notification_count > 0 %}
-        <p>You have {{ unread_notification_count }} unread notifications. <a href="{{ url_for('view_notifications') }}">View them here</a>.</p>
+        <p>You have {{ unread_notification_count }} unread notifications.</p>
     {% endif %}
 
+    <!-- Display Monthly Budgets and Progress -->
+    <h2>Monthly Budgets and Progress</h2>
+    <ul>
+        {% for budget in budgets %}
+            <li>
+                Category: {{ budget.category }}
+                <ul>
+                    <li>Budget Amount: ${{ budget.amount }}</li>
+                    <li>Amount Spent: ${{ total_expenses_by_category.get(budget.category, 0) }}</li>
+                    <li>Remaining: ${{ budget.amount - total_expenses_by_category.get(budget.category, 0) }}</li>
+                </ul>
+            </li>
+        {% endfor %}
+    </ul>
+
+    <!-- Latest Notifications -->
+    <h2>Latest Notifications</h2>
+    <ul>
+        {% for notification in latest_notifications %}
+            <li class="{{ 'unread' if not notification.is_read else 'read' }}">
+                {{ notification.message }}
+                <form method="post" action="{{ url_for('mark_notification_as_read', notification_id=notification.id) }}">
+                    <button type="submit">Mark as Read</button>
+                </form>
+            </li>
+        {% else %}
+            <li>No new notifications</li>
+        {% endfor %}
+    </ul>
+    <a href="{{ url_for('view_notifications') }}">View All Notifications</a>
+    <form method="post" action="{{ url_for('mark_all_as_read') }}">
+        <button type="submit">Mark All as Read</button>
+    </form>
+
+    <!-- Actions -->
     <h2>Actions</h2>
     <ul>
         <li><a href="{{ url_for('profile') }}">View Profile</a></li>
         <li><a href="{{ url_for('edit_profile_details') }}">Edit Profile Details</a></li>
         <li><a href="{{ url_for('change_password') }}">Change Password</a></li>
-        <li><a href="{{ url_for('add_expense') }}">Add Expense</a></li>  <!-- Kept as is -->
+        <li><a href="{{ url_for('add_expense') }}">Add Expense</a></li>
         <li><a href="{{ url_for('view_expenses') }}">View Expenses</a></li>
-        <li><a href="{{ url_for('add_or_update_category_budget') }}">Add or Update Category Budget</a></li>  <!-- Updated -->
+        <li><a href="{{ url_for('add_or_update_category_budget') }}">Add or Update Category Budget</a></li>
         <li><a href="{{ url_for('view_category_budgets') }}">View Category Budgets</a></li>
         <li><a href="{{ url_for('logout') }}">Logout</a></li>
     </ul>
 
+    <!-- Analytics and Reports -->
     <h2>Analytics and Reports</h2>
     <ul>
         <li><a href="{{ url_for('monthly_spending_report') }}">View Monthly Spending by Category</a></li>
         <li><a href="{{ url_for('yearly_spending_report') }}">View Yearly Spending by Category</a></li>
         <li><a href="{{ url_for('spending_over_time_report') }}">View Spending Over Time</a></li>
-        <li><a href="{{ url_for('budget_vs_actual_report') }}">View Budget vs Actual Spending</a></li>  <!-- Added -->
+        <li><a href="{{ url_for('budget_vs_actual_report') }}">View Budget vs Actual Spending</a></li>
         <li><a href="{{ url_for('monthly_spending_trends') }}">View Monthly Spending Trends</a></li>
-        <li><a href="{{ url_for('yearly_spending_trends') }}">View Yearly Spending Trends</a></li>
-        <li><a href="{{ url_for('export_report') }}">Export Expenses Report</a></li>
-        <li><a href="{{ url_for('expense_frequency') }}">View Most Frequent Expense Categories</a></li>
-        <li><a href="{{ url_for('savings_opportunities') }}">View Saving Opportunities</a></li>
-    </ul>
-    <h3>Spending Trends</h3>
-    <ul>
-        {% for message in trend_messages %}
-            <li>{{ message }}</li>
-        {% endfor %}
     </ul>
 </div>
 {% endblock %}
+```

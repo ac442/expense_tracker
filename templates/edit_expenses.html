@@ -1,27 +1,44 @@
-<!-- templates/edit_expenses.html -->
 {% extends "base.html" %}
 
+{% block title %}Edit Expense{% endblock %}
+
 {% block content %}
-<h2>Edit Expense</h2>
+<div class="container mt-5">
+    <h2 class="mb-4">Edit Expense</h2>
 
-<form action="{{ url_for('edit_expense', expense_id=expense.id) }}" method="post">
-    <!-- Include the CSRF token -->
-    {{ form.hidden_tag() }}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
 
-    <label for="source">Category:</label>
-    {{ form.source.label }} {{ form.source() }}<br><br>
+    <form action="{{ url_for('edit_expense', expense_id=expense.id) }}" method="post">
+        <!-- Include the CSRF token -->
+        {{ form.hidden_tag() }}
 
-    <label for="description">Description:</label>
-    {{ form.description.label }} {{ form.description() }}<br><br>
+        <div class="form-group">
+            <label for="source" class="form-label">Category:</label>
+            {{ form.source(class='form-control') }}
+        </div>
 
-    <label for="amount">Amount:</label>
-    {{ form.amount.label }} {{ form.amount() }}<br><br>
+        <div class="form-group">
+            <label for="description" class="form-label">Description:</label>
+            {{ form.description(class='form-control') }}
+        </div>
 
-    <input type="submit" value="Update Expense">
-</form>
+        <div class="form-group">
+            <label for="amount" class="form-label">Amount:</label>
+            {{ form.amount(class='form-control') }}
+        </div>
 
-<!-- Add this link to navigate back to the previous page or any other page you find appropriate -->
-<br>
-<a href="{{ url_for('dashboard') }}">Back to Home</a>
-
+        <div class="mt-3">
+            <button type="submit" class="btn btn-primary">Update</button>
+            <a href="{{ url_for('view_expenses') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
 {% endblock %}

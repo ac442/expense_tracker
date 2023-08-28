@@ -1,16 +1,25 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h2>Add or Update Category Budget</h2>
+<div class="container mt-5">
+    <h2 class="mb-4">Add or Update Category Budget</h2>
     <form method="POST">
         {{ form.hidden_tag() }}
+
         {% for category in PREDEFINED_CATEGORIES['expense'] %}
         <div class="form-group">
-            <label for="{{ category|to_snake_case }}">{{ category }}</label>
-            {{ form[category|to_snake_case].label }}
+            <label for="{{ category|to_snake_case }}" class="form-label">{{ category }}</label>
             {{ form[category|to_snake_case](class="form-control", id=category|to_snake_case) }}
+            {% if form[category|to_snake_case].errors %}
+                <div class="invalid-feedback">
+                    {{ form[category|to_snake_case].errors[0] }}
+                </div>
+            {% endif %}
         </div>
         {% endfor %}
+
         <button type="submit" class="btn btn-primary">Submit</button>
+        <button type="reset" class="btn btn-secondary">Reset</button>
     </form>
+</div>
 {% endblock %}

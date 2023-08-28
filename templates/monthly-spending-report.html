@@ -1,9 +1,29 @@
 {% extends "base.html" %}
 
+{% block title %}Monthly Spending Report{% endblock %}
+
 {% block content %}
-<div class="container">
-    <h1>{{ title }}</h1>
-    <p>Here's a visual representation of your spending by category for this month:</p>
-    <img src="data:image/png;base64,{{ image_data }}" alt="Monthly Spending by Category">
+<div class="container mt-5">
+    <h2 class="mb-4">Monthly Spending Report</h2>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- Display the graph image -->
+    <div class="graph-container">
+        <img src="data:image/png;base64,{{ image_data }}" alt="Monthly Spending Graph">
+
+    </div>
+
+    <div class="mt-3">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
 </div>
 {% endblock %}

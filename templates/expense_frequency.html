@@ -1,12 +1,40 @@
-<table>
-    <tr>
-        <th>Category</th>
-        <th>Frequency</th>
-    </tr>
-    {% for category, freq in most_frequent_categories %}
-    <tr>
-        <td>{{ category }}</td>
-        <td>{{ freq }}</td>
-    </tr>
-    {% endfor %}
-</table>
+{% extends "base.html" %}
+
+{% block title %}Expense Frequency{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h2 class="mb-4">Most Frequent Expense Categories</h2>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Category</th>
+                <th>Frequency</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for category, freq in most_frequent_categories %}
+            <tr>
+                <td>{{ category }}</td>
+                <td>{{ freq }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="mt-3">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+</div>
+{% endblock %}

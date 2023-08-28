@@ -1,45 +1,43 @@
 {% extends "base.html" %}
 
+{% block title %}
+    View Expenses
+{% endblock %}
+
 {% block content %}
-<h2>View Expenses</h2>
 
-<!-- Button to add a new expense -->
-<a href="{{ url_for('add_expense') }}" class="btn btn-primary">Add New Expense</a>
+    <h1>View All Expenses</h1>
 
-<!-- Links to other operations -->
-<div class="crud-links">
-    <a href="{{ url_for('dashboard') }}">Dashboard</a> |
-    <!-- Add other CRUD operations' links here if you have them -->
-    <!-- e.g., <a href="{{ url_for('some_operation') }}">Some Operation</a> | -->
-</div>
+    <!-- Checkbox to filter recurring expenses -->
+    <form method="get" action="{{ url_for('view_expenses') }}">
+        <input type="checkbox" name="is_recurring" value="true" onchange="this.form.submit()" {{ 'checked' if request.args.get('is_recurring') == 'true' else '' }}>
+        Show only recurring expenses
+    </form>
 
-<table border="1">
-    <thead>
-        <tr>
-            <th>Description</th>
-            <th>Amount</th>
-            <th>Date</th>
-            <th>Category</th>
-            <th>Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for expense in expenses %}
-        <tr>
-            <td>{{ expense.description }}</td>
-            <td>{{ expense.amount }}</td>
-            <td>{{ expense.date.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-            <td>{{ expense.category }}</td>
-            <td>
-                <a href="{{ url_for('edit_expense', expense_id=expense.id) }}">Edit</a> |
-                <a href="{{ url_for('delete_expense', expense_id=expense.id) }}">Delete</a>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-
-<br>
-<a href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+    <!-- Table to display expenses -->
+    <table border="1">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th>Amount</th>
+                <th>Date</th>
+                <th>Is Recurring</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for expense in expenses %}
+                <tr>
+                    <td>{{ expense.id }}</td>
+                    <td>{{ expense.category }}</td>
+                    <td>{{ expense.description }}</td>
+                    <td>{{ expense.amount }}</td>
+                    <td>{{ expense.date }}</td>
+                    <td>{{ expense.is_recurring }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 
 {% endblock %}

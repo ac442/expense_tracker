@@ -1,40 +1,28 @@
-<!-- templates/add_expense.html -->
-
-{% extends "base.html" %}
-
+{% extends "layout.html" %}
 {% block content %}
-<h2>Add an Expense</h2>
-
-<form action="{{ url_for('add_expense') }}" method="post">
-    <!-- Include the CSRF token -->
-    {{ form.hidden_tag() }}
-
-    <!-- Render the 'source' field -->
-    <div class="form-group">
-        {{ form.source.label }}<br>
-        {{ form.source() }}
-    </div>
-
-    <!-- Render the 'description' field -->
-    <div class="form-group">
-        {{ form.description.label }}<br>
-        {{ form.description() }}
-    </div>
-
-    <!-- Render the 'amount' field -->
-    <div class="form-group">
-        {{ form.amount.label }}<br>
-        {{ form.amount() }}
-    </div>
-
-    <!-- Render the submit button -->
-    <div class="form-group">
-        {{ form.submit() }}
-    </div>
-</form>
-
-<!-- Add a link to navigate back to the index page -->
-<br>
-<a href="{{ url_for('dashboard') }}">Back to Home</a>
-
+    <h1>Add Expense</h1>
+    <form method="POST">
+        {{ form.hidden_tag() }}
+        <div class="form-group">
+            {{ form.category.label }}
+            {{ form.category(class="form-control") }}
+        </div>
+        <div class="form-group">
+            {{ form.description.label }}
+            {{ form.description(class="form-control") }}
+        </div>
+        <div class="form-group">
+            {{ form.amount.label }}
+            {{ form.amount(class="form-control") }}
+        </div>
+        <div class="form-check">
+            {{ form.is_recurring.label }}
+            {{ form.is_recurring(class="form-check-input") }}
+        </div>
+        <div class="form-group">
+            {{ form.recurring_frequency.label }}
+            {{ form.recurring_frequency(class="form-control") }}
+        </div>
+        <button type="submit" class="btn btn-primary">{{ form.submit.label }}</button>
+    </form>
 {% endblock %}
