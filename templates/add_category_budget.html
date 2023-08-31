@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="container">
+        <h1>Add Category Budget</h1>
+        <form method="post">
+            {{ form.hidden_tag() }}
+
+            {% for category, field in form._fields.items() %}
+
+                {% if category != 'submit' %}
+
+                    <div class="form-group">
+                        <label for="{{ field.id }}">{{ field.label.text }}</label>
+                        {{ field(class="form-control") }}
+                        {% if field.errors %}
+                            <span class="text-danger">
+                                {% for error in field.errors %}
+                                    {{ error }}
+                                {% endfor %}
+                            </span>
+                        {% endif %}
+                    </div>
+
+                {% endif %}
+
+            {% endfor %}
+
+            <div class="form-group">
+                {{ form.submit(class="btn btn-primary") }}
+            </div>
+        </form>
+    </div>
+{% endblock %}

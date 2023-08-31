@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h1>Select Month and Year for Budget vs Actual Report</h1>
+
+  <form action="{{ url_for('budget_vs_actual_report') }}" method="GET">
+    <label for="month">Select Month:</label>
+    <select name="month" id="month">
+      <!-- You can populate these options dynamically -->
+      <option value="1">January</option>
+      <option value="2">February</option>
+      <!-- Add other months -->
+    </select>
+
+    <label for="year">Select Year:</label>
+    <select name="year" id="year">
+      <option value="{{ current_year }}">{{ current_year }}</option>
+      <option value="{{ next_year }}">{{ next_year }}</option>
+    </select>
+
+    <input type="submit" value="Generate Report">
+  </form>
+{% endblock %}

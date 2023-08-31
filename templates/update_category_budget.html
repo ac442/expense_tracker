@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="container">
+        <h1>Update Category Budget</h1>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="post">
+            {{ form.hidden_tag() }}
+            
+            {% for category, field in form._fields.items() %}
+                {% if category == 'submit' %}
+                    {# Skip the submit button for now; we'll add it later #}
+                    {% continue %}
+                {% endif %}
+
+                <div class="form-group">
+                    <label for="{{ field.id }}">{{ field.label.text }}</label>
+                    {{ field(class="form-control") }}
+                    {% if field.errors %}
+                        <span class="text-danger">
+                            {% for error in field.errors %}
+                                {{ error }}
+                            {% endfor %}
+                        </span>
+                    {% endif %}
+                </div>
+            {% endfor %}
+
+            <div class="form-group">
+                {{ form.submit(class="btn btn-primary") }}
+            </div>
+        </form>
+    </div>
+{% endblock %}

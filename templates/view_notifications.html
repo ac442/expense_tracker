@@ -1,23 +1,29 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Notifications</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body>
+{% extends "base.html" %}
 
-<div class="container">
-    <h1>Notifications</h1>
-    <ul>
-        {% for notification in notifications %}
-            <li>
-                <strong>{{ notification.sender }}</strong>: {{ notification.message }}
-            </li>
-        {% endfor %}
+{% block content %}
+  <div class="container">
+    <h1>Your Notifications</h1>
+
+    <!-- Button to mark all notifications as read -->
+    <form action="{{ url_for('mark_all_as_read') }}" method="post">
+      <button type="submit" class="btn btn-primary mb-3">Mark All as Read</button>
+    </form>
+
+    <ul class="list-group">
+      {% for notification in notifications %}
+        <li class="list-group-item {% if not notification.is_read %}list-group-item-secondary{% endif %}">
+          <!-- Notification message and date -->
+          <p><strong>{{ notification.message }}</strong></p>
+          <small class="text-muted">{{ notification.date_created.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+
+          <!-- Mark as read button -->
+          {% if not notification.is_read %}
+            <form action="{{ url_for('mark_notification_as_read', notification_id=notification.id) }}" method="post" class="mt-2">
+              <button type="submit" class="btn btn-sm btn-success">Mark as Read</button>
+            </form>
+          {% endif %}
+        </li>
+      {% endfor %}
     </ul>
-</div>
-
-</body>
-</html>
+  </div>
+{% endblock %}

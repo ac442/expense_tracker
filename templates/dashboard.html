@@ -51,20 +51,23 @@
         <li><a href="{{ url_for('change_password') }}">Change Password</a></li>
         <li><a href="{{ url_for('add_expense') }}">Add Expense</a></li>
         <li><a href="{{ url_for('view_expenses') }}">View Expenses</a></li>
-        <li><a href="{{ url_for('add_or_update_category_budget') }}">Add or Update Category Budget</a></li>
-        <li><a href="{{ url_for('view_category_budgets') }}">View Category Budgets</a></li>
-        <li><a href="{{ url_for('logout') }}">Logout</a></li>
+        <li><a href="{{ url_for('add_category_budget') }}">Add or Update Category Budget</a></li>
+        <li><a href="{{ url_for('view_category_budgets') }}">View Categories</a></li>
+        <!-- Added Financial Goals Links -->
+        <li><a href="{{ url_for('add_or_update_financial_goal') }}">Add or Update Financial Goal</a></li>
+        <li><a href="{{ url_for('list_financial_goals') }}">List Financial Goals</a></li>
     </ul>
 
-    <!-- Analytics and Reports -->
+   <!-- Analytics and Reports -->
     <h2>Analytics and Reports</h2>
     <ul>
-        <li><a href="{{ url_for('monthly_spending_report') }}">View Monthly Spending by Category</a></li>
-        <li><a href="{{ url_for('yearly_spending_report') }}">View Yearly Spending by Category</a></li>
-        <li><a href="{{ url_for('spending_over_time_report') }}">View Spending Over Time</a></li>
-        <li><a href="{{ url_for('budget_vs_actual_report') }}">View Budget vs Actual Spending</a></li>
-        <li><a href="{{ url_for('monthly_spending_trends') }}">View Monthly Spending Trends</a></li>
-    </ul>
+    <li><a href="{{ url_for('monthly_spending_report') }}">View Monthly Spending by Category</a></li>
+    <li><a href="{{ url_for('yearly_spending_report') }}">View Yearly Spending by Category</a></li>
+    <li><a href="{{ url_for('spending_over_time_report') }}">View Spending Over Time</a></li>
+    <li><a href="{{ url_for('budget_vs_actual_report') }}">View Budget vs Actual Spending</a></li>
+    <li><a href="{{ url_for('monthly_spending_trends') }}">View Monthly Spending Trends</a></li>
+    <!-- Added Yearly Spending Trends link -->
+    <li><a href="{{ url_for('yearly_spending_trends') }}">View Yearly Spending Trends</a></li></ul>
+
 </div>
 {% endblock %}
-```

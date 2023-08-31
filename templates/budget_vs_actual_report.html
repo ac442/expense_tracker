@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h1>Budget vs Actual Report for {{ month }}/{{ year }}</h1>
+
+  <!-- Display the image generated -->
+  <img src="{{ image_path }}" alt="Budget vs Actual Report">
+
+  <a href="{{ url_for('budget_vs_actual_report') }}">Back to Selection Page</a>
+{% endblock %}
